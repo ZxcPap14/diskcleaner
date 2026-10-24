@@ -267,6 +267,128 @@ class ObsidianCacheCleaner(BaseCleaner):
         return ("OK", "Obsidian cache очищен") if ok else ("ERR", "Ошибка")
 
 
+class EpicGamesCacheCleaner(BaseCleaner):
+    id = "epic"
+    name = "🎮 Epic Games Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData%\\EpicGamesLauncher\\Saved\\WebCache*"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = "Web-кэш лаунчера Epic Games; игры и вход не затрагиваются."
+    loss = "Магазин Epic загрузится чуть медленнее."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        base = LOCAL / "EpicGamesLauncher" / "Saved"
+        if not base.exists():
+            return ()
+        return tuple(p for p in base.iterdir() if p.is_dir() and
+                     p.name.lower().startswith("webcache"))
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Epic Games cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте Epic Games Launcher"
+        )
+
+
+class AdobeCacheCleaner(BaseCleaner):
+    id = "adobe"
+    name = "🎨 Adobe Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData%\\Adobe\\Common\\Media Cache Files"
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = "Кэш медиа Premiere/Media Encoder; пересоздаётся при открытии проектов."
+    loss = "Открытие проектов с видео станет дольше (рендер превью заново)."
+    restore_hint = "Adobe пересоздаст кэш автоматически."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        p = LOCAL / "Adobe" / "Common" / "Media Cache Files"
+        return (p,) if p.exists() else ()
+
+    def get_size(self) -> int:
+        return get_dir_size(self.affected_paths()[0]) if self.affected_paths() else 0
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Adobe media cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте приложения Adobe"
+        )
+
+
+class JavaCacheCleaner(BaseCleaner):
+    id = "java_cache"
+    name = "☕ Java Deployment Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData%\\..\\LocalLow\\Sun\\Java\\Deployment\\cache"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = "Кэш Java-аплетов и Web Start; пересоздаётся при необходимости."
+    loss = "Первый запуск Java-приложений будет чуть дольше."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        p = (
+            Path.home() / "AppData" / "LocalLow" / "Sun" / "Java" / "Deployment" / "cache"
+        )
+        return (p,) if p.exists() else ()
+
+    def get_size(self) -> int:
+        return get_dir_size(self.affected_paths()[0]) if self.affected_paths() else 0
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Java cache очищен") if ok else ("ERR", "Ошибка")
+
+
+class WSLVhdxInfoCleaner(BaseCleaner):
+    """Обнаружение vhdx-дисков WSL: только подсказка, файлы не удаляются."""
+
+    id = "wsl_vhdx"
+    name = "🐧 WSL: виртуальные диски (vhdx)"
+    group = GROUP_APPS
+    description = (
+        "Обнаружение ext4.vhdx дистрибутивов WSL2. "
+        "Файлы не удаляются — только подсказка по сжатию."
+    )
+    safety = SafetyLevel.ADVANCED
+    layer = LAYER_COMPONENTS
+    recommended = False
+    delete_mode = "remove"
+    why = (
+        "vhdx WSL2 растёт, но не сжимается сам. Освободить место можно командой "
+        "wsl --shutdown + Optimize-VHD (или diskpart compact vdisk)."
+    )
+    loss = "Ничего не удаляется; цель только показывает размер vhdx."
+    restore_hint = "wsl --shutdown; Optimize-VHD -Path <vhdx> -Mode Full"
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        base = LOCAL / "Packages"
+        if not base.exists():
+            return ()
+        hits: list[Path] = []
+        for distro in base.glob("CanonicalGroupLimited*"):
+            p = distro / "LocalState" / "ext4.vhdx"
+            if p.is_file():
+                hits.append(p)
+        return tuple(hits)
+
+    def get_size(self) -> int:
+        return sum(p.stat().st_size for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        return (
+            "SKIP",
+            "WSL vhdx не удаляется: wsl --shutdown, затем Optimize-VHD "
+            "(см. подсказку восстановления).",
+        )
+
+
 APP_CLEANERS = [
     DiscordCacheCleaner,
     TelegramCacheCleaner,
@@ -277,4 +399,8 @@ APP_CLEANERS = [
     SteamCacheCleaner,
     SteamDepotCacheCleaner,
     ObsidianCacheCleaner,
+    EpicGamesCacheCleaner,
+    AdobeCacheCleaner,
+    JavaCacheCleaner,
+    WSLVhdxInfoCleaner,
 ]
