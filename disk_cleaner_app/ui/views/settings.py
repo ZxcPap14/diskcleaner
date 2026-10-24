@@ -102,6 +102,7 @@ class SettingsView(MDScrollArea):
         self._build_reports()
         self._build_rules()
         self._build_whitelist()
+        self._build_schedule()
         self._build_backup()
 
     def _section(self, title: str, subtitle: str, icon: str = "") -> MDCard:
@@ -420,6 +421,82 @@ class SettingsView(MDScrollArea):
         entries = [w for w in self._whitelist_entries() if w != path]
         self._config_saver("whitelist", entries)
         self._refresh_whitelist()
+
+    def _build_schedule(self) -> None:
+        card = self._section(
+            "Расписание очистки",
+            "Еженедельная тихая очистка безопасных целей по заданию Windows",
+            icon="⏱",
+        )
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=(0, 8))
+
+        MDLabel(
+            row, self._theme, "День", role="secondary", font=FONT_LABEL,
+        ).pack(side="left", padx=(0, 4))
+        self.sched_day_var = ctk.StringVar(value="ВС")
+        ctk.CTkOptionMenu(
+            row, values=["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"],
+            variable=self.sched_day_var, width=76, height=32,
+        ).pack(side="left")
+
+        MDLabel(
+            row, self._theme, "Время", role="secondary", font=FONT_LABEL,
+        ).pack(side="left", padx=(10, 4))
+        self.sched_time_var = ctk.StringVar(value="09:00")
+        MDEntry(
+            row, self._theme, textvariable=self.sched_time_var, width=80,
+        ).pack(side="left")
+
+        self.sched_install_btn = MDButton(
+            row, self._theme, "Создать задание", self._install_schedule,
+            kind="filled", width=140, height=32,
+        )
+        self.sched_install_btn.pack(side="left", padx=(12, 0))
+        MDButton(
+            row, self._theme, "Удалить задание", self._remove_schedule,
+            kind="danger_text", width=140, height=32,
+        ).pack(side="left", padx=(4, 0))
+
+        self.sched_status = MDLabel(
+            card, self._theme, "", role="muted", font=FONT_LABEL, anchor="w",
+        )
+        self.sched_status.pack(fill="x", padx=18, pady=(0, 14))
+        self._refresh_schedule()
+
+    _DAY_TO_SCHTASKS = {
+        "ПН": "MON", "ВТ": "TUE", "СР": "WED", "ЧТ": "THU",
+        "ПТ": "FRI", "СБ": "SAT", "ВС": "SUN",
+    }
+
+    def _refresh_schedule(self) -> None:
+        from disk_cleaner_app.services.schedule import schedule_exists
+
+        if schedule_exists():
+            self.sched_status.configure(
+                text="✅ Задание активно: тихая очистка раз в неделю."
+            )
+        else:
+            self.sched_status.configure(text="Задание не создано.")
+
+    def _install_schedule(self) -> None:
+        from disk_cleaner_app.services.schedule import install_schedule
+
+        at = self.sched_time_var.get().strip()
+        day = self._DAY_TO_SCHTASKS.get(self.sched_day_var.get(), "SUN")
+        ok, message = install_schedule(day=day, at=at)
+        if not ok:
+            messagebox.showerror("Расписание очистки", message)
+        self._refresh_schedule()
+
+    def _remove_schedule(self) -> None:
+        from disk_cleaner_app.services.schedule import uninstall_schedule
+
+        ok, message = uninstall_schedule()
+        if not ok:
+            messagebox.showerror("Расписание очистки", message)
+        self._refresh_schedule()
 
     def _build_backup(self) -> None:
         card = self._section(
