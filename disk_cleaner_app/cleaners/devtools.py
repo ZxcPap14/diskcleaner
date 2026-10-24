@@ -1,6 +1,8 @@
-"""📦 Очистители Dev Tools: npm, pip, yarn, uv, rust, gradle, etc."""
+"""📦 Очистители Dev Tools: npm, pip, yarn, uv, rust, gradle, docker, etc."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import (
@@ -184,6 +186,94 @@ class AntigravityExtensionsCleaner(BaseCleaner):
         return ("SKIP", "Цель отключена: это установленные расширения, а не кэш.")
 
 
+def _run_docker(args: list[str], timeout: int = 60) -> tuple[str, str]:
+    """Выполнить команду docker CLI. Возвращает (stdout, stderr)."""
+    if shutil.which("docker") is None:
+        return "", "DOCKER_NOT_INSTALLED"
+    try:
+        r = subprocess.run(
+            ["docker", *args],
+            capture_output=True, text=True, timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return "", str(e)
+    if r.returncode != 0:
+        return r.stdout.strip(), r.stderr.strip() or f"exit {r.returncode}"
+    return r.stdout.strip(), ""
+
+
+def _parse_docker_size(text: str) -> int:
+    """«1.02GB», «12.3MB», «85.9kB», «0B» -> байты."""
+    multipliers = {"b": 1, "kb": 10**3, "mb": 10**6, "gb": 10**9, "tb": 10**12}
+    s = text.strip().lower().replace(" ", "")
+    num = ""
+    while s and (s[0].isdigit() or s[0] == "."):
+        num += s[0]
+        s = s[1:]
+    if not num:
+        return 0
+    try:
+        value = float(num)
+    except ValueError:
+        return 0
+    return int(value * multipliers.get(s, 1))
+
+
+class DockerSystemCleaner(BaseCleaner):
+    """docker system prune: остановленные контейнеры, висячие образы, кэш сборки.
+
+    Нефайловая цель (affected_paths пуст): очистку выполняет сам docker CLI.
+    """
+
+    id = "docker"
+    name = "🐳 Docker system prune"
+    group = GROUP_DEVTOOLS
+    description = "Остановленные контейнеры, неиспользуемые сети, висячие образы и кэш сборки"
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_COMPONENTS
+    recommended = False
+    delete_mode = "remove"
+    admin_required = False
+    why = (
+        "docker system prune -f удаляет остановленные контейнеры, неиспользуемые "
+        "сети, висячие образы и кэш сборки (тома не трогаются)."
+    )
+    loss = "Остановленные контейнеры исчезнут; образы и кэш скачаются/соберутся заново."
+    restore_hint = "docker pull <образ> или повторная сборка"
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        return ()
+
+    def get_size(self) -> int:
+        self.scan_error = ""
+        out, err = _run_docker(["info", "--format", "{{.ServerVersion}}"], timeout=20)
+        if err:
+            self.scan_error = "Docker не установлен или не запущен"
+            return 0
+        out, _ = _run_docker(
+            ["system", "df", "--format", "{{.Type}}\t{{.Reclaimable}}"], timeout=30
+        )
+        # Reclaimable вида «1.02GB (52%)»: берём абсолютную часть до скобок.
+        return sum(
+            _parse_docker_size(line.split("\t")[1].split(" (")[0])
+            for line in out.splitlines()
+            if "\t" in line
+        )
+
+    def clean(self) -> tuple[str, str]:
+        out, err = _run_docker(["info", "--format", "{{.ServerVersion}}"], timeout=20)
+        if err:
+            return ("ERR", "Docker не установлен или не запущен")
+        out, err = _run_docker(["system", "prune", "-f"], timeout=300)
+        if err:
+            return ("ERR", f"docker system prune: {err.strip().splitlines()[-1]}")
+        for line in out.splitlines():
+            if "total reclaimed space:" in line.lower():
+                return ("OK", f"Docker: освобождено {line.split(':', 1)[1].strip()}")
+        return ("OK", "Docker prune выполнен")
+
+
 DEVTOOLS_CLEANERS = [
     NPmCacheCleaner,
     PipCacheCleaner,
@@ -194,4 +284,5 @@ DEVTOOLS_CLEANERS = [
     GradleCacheCleaner,
     PlaywrightBrowsersCleaner,
     VSCodeCacheCleaner,
+    DockerSystemCleaner,
 ]
