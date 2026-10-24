@@ -120,3 +120,12 @@ def test_duplicates_are_removed_from_candidates(tmp_path: Path) -> None:
     leftovers = uninstaller.find_leftovers(app, "safe")
 
     assert len(leftovers) == 1
+
+
+def test_install_date_label_formats_registry_value() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    assert UninstallerView._install_date_label({"install_date": "20260115"}) == "2026-01-15"
+    assert UninstallerView._install_date_label({"install_date": ""}) == "—"
+    assert UninstallerView._install_date_label({}) == "—"
+    assert UninstallerView._install_date_label({"install_date": "bad"}) == "—"

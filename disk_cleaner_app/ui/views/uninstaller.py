@@ -109,6 +109,18 @@ class UninstallerView(ctk.CTkFrame):
         )
         self.level_seg.pack(side="left")
 
+        MDLabel(
+            options, self._theme, "Сортировка", role="secondary", font=FONT_LABEL,
+        ).pack(side="left", padx=(18, 8))
+        self.sort_var = ctk.StringVar(value="По имени")
+        self._sort_mode = "name"
+        ctk.CTkOptionMenu(
+            options,
+            values=["По имени", "По размеру", "По дате установки"],
+            variable=self.sort_var, width=160, height=34,
+            command=self._set_sort,
+        ).pack(side="left")
+
         self.leftovers_btn = MDButton(
             options, self._theme, "Найти остатки", self._scan_leftovers,
             kind="outlined", width=128, height=34,
@@ -140,15 +152,18 @@ class UninstallerView(ctk.CTkFrame):
 
         style_treeview("Uninstall", self._theme, row_height=32)
         self.tree = ttk.Treeview(
-            list_card, columns=("name", "version", "size"), show="headings",
-            selectmode="browse", height=14, style="Uninstall.Treeview",
+            list_card, columns=("name", "version", "size", "date"),
+            show="headings", selectmode="browse", height=14,
+            style="Uninstall.Treeview",
         )
         self.tree.heading("name", text="Программа", anchor="w")
         self.tree.heading("version", text="Версия", anchor="w")
         self.tree.heading("size", text="Размер", anchor="e")
+        self.tree.heading("date", text="Установлена", anchor="e")
         self.tree.column("name", width=240, minwidth=150)
         self.tree.column("version", width=90, minwidth=70, stretch=False)
         self.tree.column("size", width=92, minwidth=70, anchor="e", stretch=False)
+        self.tree.column("date", width=110, minwidth=90, anchor="e", stretch=False)
 
         self._list_scroll = ctk.CTkScrollbar(
             list_card, command=self.tree.yview, width=10,
@@ -193,22 +208,49 @@ class UninstallerView(ctk.CTkFrame):
         self._apps = apps
         self._filter_apps()
 
-    def _filter_apps(self) -> None:
+    def _set_sort(self, label: str) -> None:
+        modes = {
+            "По имени": "name",
+            "По размеру": "size",
+            "По дате установки": "date",
+        }
+        self._sort_mode = modes.get(label, "name")
+        self._filter_apps()
+
+    @staticmethod
+    def _install_date_label(app: dict) -> str:
+        # InstallDate в реестре хранится как ГГГГММДД.
+        raw = str(app.get("install_date", ""))
+        if len(raw) == 8 and raw.isdigit():
+            return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+        return "—"
+
+    def _visible_apps(self) -> list[dict]:
+        """Отфильтрованный и отсортированный список — порядок строк таблицы."""
         query = self.search_var.get().lower()
+        apps = [a for a in self._apps
+                if not query or query in str(a.get("name", "")).lower()]
+        if self._sort_mode == "size":
+            apps.sort(key=lambda a: int(a.get("size_kb", 0) or 0), reverse=True)
+        elif self._sort_mode == "date":
+            apps.sort(key=lambda a: str(a.get("install_date", "")), reverse=True)
+        return apps
+
+    def _filter_apps(self) -> None:
         for i in self.tree.get_children():
             self.tree.delete(i)
 
+        apps = self._visible_apps()
+
         shown = 0
-        for app in self._apps:
-            name = app.get("name", "")
-            if query and query not in name.lower():
-                continue
+        for app in apps:
             sz = app.get("size_kb", 0)
             sz_str = format_bytes(sz * 1024) if sz > 0 else "—"
             self.tree.insert("", "end", values=(
-                name,
+                app.get("name", ""),
                 app.get("version", ""),
                 sz_str,
+                self._install_date_label(app),
             ))
             shown += 1
 
@@ -257,14 +299,11 @@ class UninstallerView(ctk.CTkFrame):
         sel = self.tree.selection()
         if not sel:
             return None
+        visible = self._visible_apps()
         idx = self.tree.index(sel[0])
-        query = self.search_var.get().lower()
-        filtered = [
-            a for a in self._apps if not query or query in a.get("name", "").lower()
-        ]
-        if idx >= len(filtered):
+        if idx >= len(visible):
             return None
-        return filtered[idx]
+        return visible[idx]
 
     def _scan_leftovers(self) -> None:
         if self._is_uninstalling:
