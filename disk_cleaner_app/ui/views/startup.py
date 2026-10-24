@@ -7,6 +7,10 @@ from tkinter import messagebox, ttk
 import customtkinter as ctk
 
 from disk_cleaner_app.services.startup import StartupManager
+from disk_cleaner_app.services.startup_services import (
+    ScheduledTasksManager,
+    ServicesManager,
+)
 from disk_cleaner_app.ui.assets import (
     FONT_BODY,
     FONT_HEADLINE,
@@ -35,6 +39,9 @@ class StartupView(ctk.CTkFrame):
         self._theme = theme
         self._on_log = on_log
         self._manager = StartupManager()
+        self._services = ServicesManager()
+        self._tasks = ScheduledTasksManager()
+        self._mode = "items"
         self._items: list[dict] = []
         self._items_by_id: dict[str, dict] = {}
         self._ui = UiDispatcher(self)
@@ -81,6 +88,15 @@ class StartupView(ctk.CTkFrame):
             row, self._theme, "Добавить", self._add_dialog,
             kind="filled", width=104, height=34,
         ).pack(side="left")
+
+        self.mode_var = ctk.StringVar(value="Записи")
+        self._mode_menu = ctk.CTkOptionMenu(
+            row,
+            values=["Записи", "Службы", "Задачи планировщика"],
+            variable=self.mode_var, width=170, height=34,
+            command=self._set_mode,
+        )
+        self._mode_menu.pack(side="left", padx=(14, 0))
 
         self.info_label = MDLabel(
             row, self._theme, "Загрузка…", role="secondary", font=FONT_LABEL,
@@ -129,9 +145,33 @@ class StartupView(ctk.CTkFrame):
 
         self.refresh()
 
+    def _set_mode(self, label: str) -> None:
+        self._mode = {"Записи": "items", "Службы": "services",
+                      "Задачи планировщика": "tasks"}[label]
+        self.add_label.configure(text="")
+        self.refresh()
+
     def refresh(self) -> None:
+        self.info_label.configure(text="Загрузка…")
+
         def worker():
-            items = self._manager.get_all()
+            if self._mode == "services":
+                items = self._services.get_all()
+                if not items and self._services.last_error:
+                    self._ui.post(
+                        self.info_label.configure,
+                        text=f"⚠️ {self._services.last_error}",
+                    )
+                    items = []
+            elif self._mode == "tasks":
+                items = self._tasks.get_all()
+                if not items and self._tasks.last_error:
+                    self._ui.post(
+                        self.info_label.configure,
+                        text=f"⚠️ {self._tasks.last_error}",
+                    )
+            else:
+                items = self._manager.get_all()
             self._ui.post(self._display, items)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -144,18 +184,27 @@ class StartupView(ctk.CTkFrame):
         for item in items:
             item_id = str(item.get("id"))
             enabled = bool(item.get("enabled", False))
+            if item.get("kind") == "service":
+                status = "Включено" if enabled else "Отключено"
+                status += f" · {item.get('state', '')} · {item.get('start_mode', '')}"
+            elif item.get("kind") == "task":
+                status = str(item.get("status_text", "") or
+                             ("Включено" if enabled else "Отключено"))
+            else:
+                status = "Включено" if enabled else "Отключено"
             self.tree.insert("", "end", iid=item_id, values=(
                 item.get("name", "?"),
-                "Включено" if enabled else "Отключено",
-                item.get("command", "")[:80],
+                status,
+                str(item.get("command", ""))[:80],
                 item.get("source", "?"),
             ), tags=("enabled" if enabled else "disabled",))
         enabled_count = sum(1 for i in items if i.get("enabled"))
         disabled_count = len(items) - enabled_count
-        self.info_label.configure(
-            text=f"Всего: {len(items)} · включено: {enabled_count} · "
-                 f"отключено: {disabled_count}"
-        )
+        if not (items == [] and self._mode != "items"):
+            self.info_label.configure(
+                text=f"Всего: {len(items)} · включено: {enabled_count} · "
+                     f"отключено: {disabled_count}"
+            )
         self.add_label.configure(text="")
 
     def _selected_item(self) -> dict | None:
@@ -163,6 +212,14 @@ class StartupView(ctk.CTkFrame):
         if not sel:
             return None
         return self._items_by_id.get(sel[0])
+
+    def _manager_for(self, item: dict):
+        kind = item.get("kind")
+        if kind == "service":
+            return self._services
+        if kind == "task":
+            return self._tasks
+        return self._manager
 
     def _disable_selected(self) -> None:
         item = self._selected_item()
@@ -173,21 +230,28 @@ class StartupView(ctk.CTkFrame):
             self._on_log(f"ℹ️  {name} уже отключена")
             return
 
+        warning = ""
+        if item.get("kind") == "service":
+            warning = (
+                "\n\n⚠️ Отключение системной службы может нарушить работу "
+                "Windows. Исходный тип запуска сохраняется и восстановим."
+            )
         if not messagebox.askyesno(
             "Отключение",
-            f"Отключить '{name}' из автозагрузки?\n\n"
-            "Запись можно будет вернуть кнопкой «Включить».",
+            f"Отключить '{name}'?\n\n"
+            "Запись можно будет вернуть кнопкой «Включить»." + warning,
         ):
             return
 
-        ok = self._manager.disable_item(item)
+        manager = self._manager_for(item)
+        ok = manager.disable_item(item)
         if ok:
             self._on_log(f"🚫  Отключено: {name}")
             self.refresh()
         else:
             messagebox.showerror(
                 "Ошибка",
-                self._manager.last_error or f"Не удалось отключить {name}",
+                manager.last_error or f"Не удалось отключить {name}",
             )
 
     def _enable_selected(self) -> None:
@@ -199,14 +263,15 @@ class StartupView(ctk.CTkFrame):
             self._on_log(f"ℹ️  {name} уже включена")
             return
 
-        ok = self._manager.enable_item(item)
+        manager = self._manager_for(item)
+        ok = manager.enable_item(item)
         if ok:
             self._on_log(f"✅  Включено: {name}")
             self.refresh()
         else:
             messagebox.showerror(
                 "Ошибка",
-                self._manager.last_error or f"Не удалось включить {name}",
+                manager.last_error or f"Не удалось включить {name}",
             )
 
     def _add_dialog(self) -> None:
