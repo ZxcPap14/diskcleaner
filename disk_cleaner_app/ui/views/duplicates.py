@@ -156,9 +156,13 @@ class DuplicatesView(ctk.CTkFrame):
         self.dup_text.configure(state="disabled")
 
         def worker():
-            fn = self._finder.find_fast if mode == "fast" else self._finder.find_exact
+            fn = (
+                self._finder.find_fast_groups
+                if mode == "fast"
+                else self._finder.find_exact_groups
+            )
             try:
-                dups = fn(
+                groups = fn(
                     self.dup_path.get(),
                     cancel=self._cancel,
                     progress=self._search_progress,
@@ -167,15 +171,25 @@ class DuplicatesView(ctk.CTkFrame):
                 self._ui.post(self._show_result, f"❌ Ошибка поиска: {e}\n", 0, [])
                 return
             cancelled = self._cancel.is_set()
-            text = f"{'⚡ Быстрый' if mode == 'fast' else '🎯 BLAKE2b'}: {len(dups)} дубликатов\\n"
+            extra = sum(g["count"] - 1 for g in groups)
+            text = (
+                f"{'⚡ Быстрый' if mode == 'fast' else '🎯 BLAKE2b'}: "
+                f"{len(groups)} групп · {extra} лишних копий · "
+                f"зря занято {format_bytes(sum(g['wasted'] for g in groups))}\n"
+            )
             if cancelled:
-                text = "⏹ Поиск остановлен.\\n" + text
-            text += "═" * 50 + "\\n"
-            for d in dups[:50]:
-                text += f"📄 {d['name']:40s} {format_bytes(d['size'])}\\n"
-                text += f"  1: {d['file1']}\\n"
-                text += f"  2: {d['file2']}\\n\\n"
-            self._ui.post(self._show_result, text, len(dups), dups)
+                text = "⏹ Поиск остановлен.\n" + text
+            text += "═" * 50 + "\n"
+            for g in groups[:50]:
+                text += (
+                    f"📄 {g['name']}  ×{g['count']}  "
+                    f"{format_bytes(g['size'])} каждый · зря {format_bytes(g['wasted'])}\n"
+                )
+                for i, path in enumerate(g["files"]):
+                    mark = "оригинал" if i == 0 else f"копия {i}"
+                    text += f"  {i + 1}: [{mark}] {path}\n"
+                text += "\n"
+            self._ui.post(self._show_result, text, len(groups), groups)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -211,22 +225,22 @@ class DuplicatesView(ctk.CTkFrame):
         if self._is_searching or not self._dups:
             return
 
-        unique_targets = {
-            str(d.get("file2")) for d in self._dups if d.get("file2")
-        }
-        total_size = 0
-        for target in unique_targets:
-            try:
-                total_size += Path(target).stat().st_size
-            except OSError:
-                pass
+        pairs = []
+        for group in self._dups:
+            files = group.get("files") or []
+            if len(files) < 2:
+                continue
+            for extra in files[1:]:
+                pairs.append({"file1": files[0], "file2": extra})
+
+        unique_targets = {p["file2"] for p in pairs}
+        total_size = sum(int(g.get("wasted", 0)) for g in self._dups)
 
         if not messagebox.askyesno(
             "Удаление дубликатов",
             f"Переместить в корзину {len(unique_targets)} файлов "
             f"({format_bytes(total_size)})?\n\n"
-            "В каждой паре удаляется только второй файл.\n"
-            "Оригиналы остаются на месте.",
+            "В каждой группе удаляются все копии, кроме первой (оригинала).",
         ):
             return
 
@@ -235,8 +249,6 @@ class DuplicatesView(ctk.CTkFrame):
         self.exact_btn.configure(state="disabled")
         self.delete_btn.configure(state="disabled")
         self.dup_status.configure(text="🗑️ Удаление...")
-
-        pairs = list(self._dups)
 
         def worker():
             result = self._finder.delete_duplicates(pairs, to_recycle=True)

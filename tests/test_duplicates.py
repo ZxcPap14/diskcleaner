@@ -228,3 +228,43 @@ def test_disappearing_file_does_not_abort_exact_search(tmp_path: Path) -> None:
 
     assert results == []
     assert original.exists()
+
+
+def test_find_exact_groups_returns_whole_group(tmp_path: Path) -> None:
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.bin").write_bytes(b"same" * 100)
+    (tmp_path / "d.bin").write_bytes(b"other" * 100)
+
+    groups = DuplicateFinder().find_exact_groups(str(tmp_path), min_size_kb=0)
+
+    assert len(groups) == 1
+    group = groups[0]
+    assert group["count"] == 3
+    assert len(group["files"]) == 3
+    assert group["size"] == 400
+    assert group["wasted"] == 800
+    assert group["name"].endswith("a.bin") or "a.bin" in group["name"]
+
+
+def test_groups_are_sorted_by_wasted(tmp_path: Path) -> None:
+    for name in ("s1", "s2"):
+        (tmp_path / f"{name}.bin").write_bytes(b"x" * 100)
+    for name in ("b1", "b2"):
+        (tmp_path / f"{name}.bin").write_bytes(b"y" * 1000)
+
+    groups = DuplicateFinder().find_exact_groups(str(tmp_path), min_size_kb=0)
+
+    assert [g["size"] for g in groups] == [1000, 100]
+
+
+def test_pairs_from_groups_match_legacy_format(tmp_path: Path) -> None:
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.bin").write_bytes(b"same" * 100)
+
+    finder = DuplicateFinder()
+    groups = finder.find_exact_groups(str(tmp_path), min_size_kb=0)
+    pairs = finder._pairs(groups)
+
+    assert len(pairs) == 2
+    assert all(p["file1"] == groups[0]["files"][0] for p in pairs)
+    assert {p["file2"] for p in pairs} == set(groups[0]["files"][1:])

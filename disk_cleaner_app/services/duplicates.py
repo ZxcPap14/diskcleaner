@@ -40,6 +40,18 @@ class DuplicateFinder:
         progress: ProgressCallback | None = None,
     ) -> list[dict]:
         """Быстрый поиск: группировка по (имя_файла, размер)."""
+        return self._pairs(self.find_fast_groups(
+            root, min_size_kb=min_size_kb, cancel=cancel, progress=progress
+        ))
+
+    def find_fast_groups(
+        self,
+        root: str,
+        min_size_kb: int = 100,
+        cancel: threading.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> list[dict]:
+        """Быстрый поиск, результат — группы из N≥2 одинаковых файлов."""
         self._min_size_kb = min_size_kb
         groups: dict[tuple, list[str]] = defaultdict(list)
         scanned = 0
@@ -61,7 +73,7 @@ class DuplicateFinder:
                 if progress and scanned % 500 == 0:
                     progress(scanned, 0, f"Проверено файлов: {scanned}")
 
-        return self._groups_to_results(groups)
+        return self._group_list(groups)
 
     # ── точный поиск ─────────────────────────────────────
 
@@ -73,6 +85,18 @@ class DuplicateFinder:
         progress: ProgressCallback | None = None,
     ) -> list[dict]:
         """Точный поиск: размер → частичный хэш → полный BLAKE2b."""
+        return self._pairs(self.find_exact_groups(
+            root, min_size_kb=min_size_kb, cancel=cancel, progress=progress
+        ))
+
+    def find_exact_groups(
+        self,
+        root: str,
+        min_size_kb: int = 100,
+        cancel: threading.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> list[dict]:
+        """Точный поиск, результат — группы из N≥2 идентичных файлов."""
         self._min_size_kb = min_size_kb
 
         # Фаза 1: группировка по размеру (файлы одного размера — кандидаты).
@@ -134,11 +158,16 @@ class DuplicateFinder:
                 if progress and remaining:
                     progress(processed, remaining, "Полное сравнение (BLAKE2b)")
 
-        return self._groups_to_results(final_groups)
+        return self._group_list(final_groups)
 
-    def _groups_to_results(self, groups: dict) -> list[dict]:
-        """Конвертировать группы в список пар (оригинал, дубликат)."""
-        results = []
+    def _group_list(self, groups: dict, limit: int | None = None) -> list[dict]:
+        """Конвертировать словарь групп в список групп-описаний.
+
+        Каждая группа: name, size, files (первый — оригинал), count, wasted.
+        Сортировка по «занятому зря» месту (убывание).
+        """
+        max_groups = limit if limit is not None else self._max_results
+        out: list[dict] = []
         for _key, files in groups.items():
             if len(files) < 2:
                 continue
@@ -146,14 +175,28 @@ class DuplicateFinder:
                 sz = os.stat(files[0]).st_size
             except OSError:
                 continue
+            out.append({
+                "name": os.path.basename(files[0]),
+                "size": sz,
+                "files": list(files),
+                "count": len(files),
+                "wasted": sz * (len(files) - 1),
+            })
+        out.sort(key=lambda g: g["wasted"], reverse=True)
+        return out[:max_groups]
 
+    def _pairs(self, groups: list[dict]) -> list[dict]:
+        """Развернуть группы в список пар (оригинал, дубликат)."""
+        results = []
+        for group in groups:
+            files = group["files"]
             for i in range(1, len(files)):
                 results.append({
-                    "name": os.path.basename(files[0]),
-                    "size": sz,
+                    "name": group["name"],
+                    "size": group["size"],
                     "file1": files[0],
                     "file2": files[i],
-                    "count": len(files),
+                    "count": group["count"],
                 })
                 if len(results) >= self._max_results:
                     return results
