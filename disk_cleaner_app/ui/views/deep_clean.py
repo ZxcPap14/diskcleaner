@@ -1305,7 +1305,7 @@ class DeepCleanView(ctk.CTkFrame):
                 }
                 for r in results
             ]
-            HistoryManager().add_operation(payload, bytes_freed=freed)
+            HistoryManager().add_operation(payload, bytes_freed=freed, op_type="deep")
         except Exception as e:
             self._on_log(f"⚠️  История не сохранена: {e}")
             log.exception("Не удалось сохранить историю глубокой очистки")

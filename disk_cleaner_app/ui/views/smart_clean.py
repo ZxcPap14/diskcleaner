@@ -443,7 +443,7 @@ class SmartCleanView(ctk.CTkFrame):
                 }
                 for r in results
             ]
-            HistoryManager().add_operation(payload, bytes_freed=freed)
+            HistoryManager().add_operation(payload, bytes_freed=freed, op_type="smart")
             log.info(
                 "Очистка: целей %s, освобождено %s байт",
                 len(results), freed,

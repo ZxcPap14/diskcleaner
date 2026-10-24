@@ -88,3 +88,34 @@ def test_clear_removes_all_rows(tmp_path: Path) -> None:
 
     assert history.count() == 0
     assert history.total_freed() == 0
+
+
+def test_op_type_roundtrip(tmp_path: Path) -> None:
+    mgr = HistoryManager(db_path=tmp_path / "h.db")
+    mgr.add(1, 100, op_type="smart")
+    mgr.add(2, 200, op_type="deep")
+
+    entries = mgr.get_all()
+
+    assert [e["op_type"] for e in entries] == ["deep", "smart"]
+
+
+def test_v2_database_is_migrated(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE history (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "date TEXT, items_cleaned INTEGER, bytes_freed INTEGER, details TEXT)"
+        )
+        conn.execute("PRAGMA user_version=2")
+        conn.execute(
+            "INSERT INTO history (date, items_cleaned, bytes_freed, details) "
+            "VALUES ('2026-10-01T10:00:00', 1, 50, '')"
+        )
+
+    entries = HistoryManager(db_path=db).get_all()
+
+    assert len(entries) == 1
+    assert entries[0]["op_type"] == "clean"

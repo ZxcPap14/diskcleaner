@@ -98,6 +98,18 @@ class HistoryView(ctk.CTkFrame):
         ).pack(side="left")
 
         MDLabel(
+            row, self._theme, "Тип", role="muted", font=FONT_LABEL,
+        ).pack(side="left", padx=(12, 4))
+        self.type_var = ctk.StringVar(value="Все типы")
+        self.type_menu = ctk.CTkOptionMenu(
+            row,
+            values=["Все типы", "Smart Clean", "Глубокая очистка", "Очистка"],
+            variable=self.type_var, width=150, height=32,
+            command=lambda _v: self._apply(),
+        )
+        self.type_menu.pack(side="left")
+
+        MDLabel(
             row, self._theme, "⌕", role="secondary", font=("Segoe UI", 14),
         ).pack(side="left", padx=(12, 4))
         self.query_var = ctk.StringVar(value="")
@@ -208,11 +220,17 @@ class HistoryView(ctk.CTkFrame):
                 text_color=self._theme.colors.TEXT_MUTED,
             )
 
+        type_labels = {
+            "Smart Clean": "smart",
+            "Глубокая очистка": "deep",
+            "Очистка": "clean",
+        }
         entries = filter_entries(
             self._all,
             date_from=date_from,
             date_to=date_to,
             query=self.query_var.get(),
+            op_type=type_labels.get(self.type_var.get(), ""),
         )
         self._render(entries)
 
@@ -268,6 +286,7 @@ class HistoryView(ctk.CTkFrame):
         self.from_var.set("")
         self.to_var.set("")
         self.query_var.set("")
+        self.type_var.set("Все типы")
         self.refresh()
 
     # ── экспорт ──────────────────────────────────────────

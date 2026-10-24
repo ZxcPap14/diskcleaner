@@ -92,3 +92,17 @@ def test_format_details_lists_each_target() -> None:
 
 def test_total_freed() -> None:
     assert total_freed(ENTRIES) == 2560
+
+
+def test_filter_by_op_type() -> None:
+    typed = [
+        {"id": 1, "date": "2026-10-01T10:00:00", "op_type": "smart"},
+        {"id": 2, "date": "2026-10-02T10:00:00", "op_type": "deep"},
+        # Старая запись без типа — считается «clean».
+        {"id": 3, "date": "2026-10-03T10:00:00"},
+    ]
+
+    assert [e["id"] for e in filter_entries(typed, op_type="smart")] == [1]
+    assert [e["id"] for e in filter_entries(typed, op_type="deep")] == [2]
+    assert [e["id"] for e in filter_entries(typed, op_type="clean")] == [3]
+    assert [e["id"] for e in filter_entries(typed, op_type="")] == [1, 2, 3]

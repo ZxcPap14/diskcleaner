@@ -84,15 +84,18 @@ def filter_entries(
     date_from: str = "",
     date_to: str = "",
     query: str = "",
+    op_type: str = "",
 ) -> list[dict]:
-    """Отфильтровать журнал по датам (включительно) и тексту.
+    """Отфильтровать журнал по датам (включительно), тексту и типу операции.
 
     Некорректная дата игнорируется: фильтр считается незаданным.
     Текст ищется в именах целей, статусе, деталях и дате.
+    Пустой ``op_type`` означает «все типы»; записи без типа считаются «clean».
     """
     start = parse_date(date_from)
     end = parse_date(date_to)
     needle = (query or "").strip().lower()
+    wanted_type = (op_type or "").strip()
 
     result: list[dict] = []
     for entry in entries:
@@ -103,6 +106,8 @@ def filter_entries(
         if end is not None:
             if moment is None or moment > end:
                 continue
+        if wanted_type and str(entry.get("op_type") or "clean") != wanted_type:
+            continue
         if needle and needle not in _haystack(entry):
             continue
         result.append(entry)

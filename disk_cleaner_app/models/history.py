@@ -12,7 +12,15 @@ from disk_cleaner_app.models.config import CONFIG_DIR
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+# Понятные имена типов операций (для фильтра в UI).
+OP_TYPES = ("smart", "deep", "clean")
+OP_TYPE_LABELS = {
+    "smart": "Smart Clean",
+    "deep": "Глубокая очистка",
+    "clean": "Очистка",
+}
 
 
 class HistoryManager:
@@ -44,13 +52,26 @@ class HistoryManager:
                     date TEXT,
                     items_cleaned INTEGER,
                     bytes_freed INTEGER,
-                    details TEXT
+                    details TEXT,
+                    op_type TEXT DEFAULT 'clean'
                 )
             """)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_history_date ON history(date)"
             )
+            self._migrate(conn)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Добавить op_type в базы старых версий (v2 без колонки)."""
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(history)")
+        }
+        if "op_type" not in columns:
+            conn.execute(
+                "ALTER TABLE history ADD COLUMN op_type TEXT DEFAULT 'clean'"
+            )
 
     # ── запись ─────────────────────────────────────────
 
@@ -60,17 +81,20 @@ class HistoryManager:
         bytes_freed: int,
         details: str = "",
         when: datetime.datetime | None = None,
+        op_type: str = "clean",
     ) -> None:
         """Добавить запись. ``details`` — произвольная строка или JSON."""
         moment = (when or datetime.datetime.now()).isoformat()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO history (date, items_cleaned, bytes_freed, details) "
-                "VALUES (?, ?, ?, ?)",
-                (moment, int(items_cleaned), int(bytes_freed), details),
+                "INSERT INTO history (date, items_cleaned, bytes_freed, details, "
+                "op_type) VALUES (?, ?, ?, ?, ?)",
+                (moment, int(items_cleaned), int(bytes_freed), details, op_type),
             )
 
-    def add_operation(self, results: list[dict], bytes_freed: int) -> None:
+    def add_operation(
+        self, results: list[dict], bytes_freed: int, op_type: str = "clean"
+    ) -> None:
         """Сохранить операцию очистки в виде JSON-списка целей."""
         try:
             payload = json.dumps(results, ensure_ascii=False)
@@ -80,6 +104,7 @@ class HistoryManager:
             items_cleaned=sum(1 for r in results if r.get("status") == "OK"),
             bytes_freed=bytes_freed,
             details=payload,
+            op_type=op_type,
         )
 
     # ── чтение ─────────────────────────────────────────
@@ -97,8 +122,8 @@ class HistoryManager:
         """Полные записи с разобранным JSON в ``details``."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, date, items_cleaned, bytes_freed, details FROM history "
-                "ORDER BY id DESC LIMIT ?",
+                "SELECT id, date, items_cleaned, bytes_freed, details, op_type "
+                "FROM history ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [self._to_dict(row) for row in rows]
@@ -107,8 +132,8 @@ class HistoryManager:
         """Все записи истории (новые сверху) — для отчётов."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, date, items_cleaned, bytes_freed, details FROM history "
-                "ORDER BY id DESC"
+                "SELECT id, date, items_cleaned, bytes_freed, details, op_type "
+                "FROM history ORDER BY id DESC"
             ).fetchall()
         return [self._to_dict(row) for row in rows]
 
@@ -143,7 +168,7 @@ class HistoryManager:
 
     @staticmethod
     def _to_dict(row: tuple) -> dict[str, Any]:
-        row_id, date, items, freed, details = row
+        row_id, date, items, freed, details, op_type = row
         parsed: Any = None
         if details:
             try:
@@ -156,4 +181,5 @@ class HistoryManager:
             "items_cleaned": items,
             "bytes_freed": freed,
             "details": parsed,
+            "op_type": op_type or "clean",
         }
