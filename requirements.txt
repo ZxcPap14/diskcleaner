@@ -1,0 +1,2 @@
+customtkinter>=5.2,<7
+squarify>=0.4.4,<1

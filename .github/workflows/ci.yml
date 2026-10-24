@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Compile
+        run: python -m compileall -q disk_cleaner_app
+
+      - name: Ruff
+        run: >-
+          python -m ruff check disk_cleaner_app/models disk_cleaner_app/services
+          disk_cleaner_app/cleaners disk_cleaner_app/ui disk_cleaner_app/__main__.py
+          disk_cleaner_app/__init__.py build.py tests
+
+      - name: Mypy
+        run: >-
+          python -m mypy disk_cleaner_app/models disk_cleaner_app/services
+          disk_cleaner_app/cleaners disk_cleaner_app/ui
+          --ignore-missing-imports
+
+      - name: Pytest
+        run: python -m pytest
+
+      - name: Build exe
+        run: python build.py

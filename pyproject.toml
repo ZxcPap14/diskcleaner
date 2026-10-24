@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "disk-cleaner"
+version = "4.6.0"
+description = "🧹 DiskCleaner Pro — очиститель диска для Windows"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "ZCode"}]
+keywords = ["windows", "cleaner", "disk", "cache", "cleanup", "tkinter"]
+classifiers = [
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "customtkinter>=5.2,<7",
+    "squarify>=0.4.4,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pyinstaller>=6.0,<7",
+]
+
+[project.gui-scripts]
+disk-cleaner = "disk_cleaner_app.ui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["disk_cleaner_app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Легаси-модули исключены из сборки и не поддерживаются.
+extend-exclude = ["disk_cleaner_app/legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+exclude = 'disk_cleaner_app/(core|gui|scanners|analyzer)\.py'
+
+[[tool.mypy.overrides]]
+module = ["customtkinter", "customtkinter.*", "squarify", "squarify.*"]
+ignore_missing_imports = true

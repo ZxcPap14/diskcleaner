@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.e2e/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# PyInstaller
+*.spec.bak
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Project-local
+*.log
+*.tmp
