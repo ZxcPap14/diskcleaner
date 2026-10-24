@@ -267,12 +267,12 @@ class MainWindow:
                 "Не удалось перезапустить приложение. Возможно, запрос UAC отклонён.",
             )
 
-    def _save_config_option(self, key: str, value: str) -> None:
-        if value.lower() in ("true", "false"):
+    def _save_config_option(self, key: str, value: object) -> None:
+        if isinstance(value, str) and value.lower() in ("true", "false"):
             self.config.set(key, value.lower() == "true")
         else:
             self.config.set(key, value)
-        if key == "theme":
+        if key == "theme" and isinstance(value, str):
             self.theme.mode = value
             self._apply_theme()
 

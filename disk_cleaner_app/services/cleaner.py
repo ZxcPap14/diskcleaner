@@ -13,6 +13,7 @@ from disk_cleaner_app.cleaners.base import (
     scan_cancelled,
     set_clean_options,
 )
+from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.models.target import LAYER_LEFTOVERS
 from disk_cleaner_app.services.batch_delete import delete_many
@@ -51,11 +52,26 @@ class CleanResult:
     errors: list[str] = field(default_factory=list)
 
 
+def _config_whitelist() -> list[str]:
+    """Белый список путей из настроек (list[str]; некорректное — пусто)."""
+    try:
+        raw = ConfigManager().get("whitelist", [])
+    except Exception:
+        return []
+    if isinstance(raw, list):
+        return [str(w) for w in raw if str(w).strip()]
+    return []
+
+
 class CleanEngine:
     """Движок очистки: строит план и выполняет его последовательно."""
 
-    def build_plan(self, cleaners: list[BaseCleaner]) -> OperationPlan:
-        return Planner().build(cleaners)
+    def build_plan(
+        self, cleaners: list[BaseCleaner], whitelist: list[str] | None = None
+    ) -> OperationPlan:
+        if whitelist is None:
+            whitelist = _config_whitelist()
+        return Planner(whitelist).build(cleaners)
 
     def clean_selected(
         self,

@@ -236,3 +236,30 @@ def test_overlap_resolution_is_not_quadratic() -> None:
     assert len(parent_plan.actions) == 10_000
     assert child_plan.actions == []
     assert len(child_plan.skipped) == 10_000
+
+
+def test_whitelist_excludes_paths_from_plan(tmp_path: Path) -> None:
+    keep = tmp_path / "keep"
+    keep.mkdir()
+    (keep / "a.bin").write_bytes(b"x" * 10)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "b.bin").write_bytes(b"y" * 20)
+
+    plan = Planner(whitelist=[str(keep)]).build([PathCleaner([keep, cache])])
+
+    actions = plan.targets[0].actions
+    assert [str(a.path) for a in actions] == [str(cache / "b.bin")]
+    assert plan.targets[0].planned_bytes == 20
+    assert any("белый список" in s for s in plan.targets[0].skipped)
+
+
+def test_whitelist_covers_children(tmp_path: Path) -> None:
+    target = tmp_path / "proj"
+    target.mkdir()
+    (target / "sub").mkdir()
+    (target / "sub" / "c.bin").write_bytes(b"z" * 5)
+
+    plan = Planner(whitelist=[str(target / "sub")]).build([PathCleaner([target])])
+
+    assert plan.targets[0].actions == []

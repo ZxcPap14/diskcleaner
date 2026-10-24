@@ -9,6 +9,7 @@ import pytest
 from disk_cleaner_app.cleaners.safety import (
     is_dangerous_target,
     is_protected_path,
+    is_whitelisted,
     validate_custom_path,
 )
 
@@ -79,3 +80,12 @@ def test_trailing_dots_and_spaces_do_not_bypass_protection() -> None:
 def test_root_paths_survive_tail_normalization() -> None:
     assert is_protected_path("C:\\") is True
     assert is_protected_path("D:\\") is True
+
+
+def test_is_whitelisted_covers_path_and_children(tmp_path: Path) -> None:
+    entry = str(tmp_path / "docs")
+
+    assert is_whitelisted(tmp_path / "docs", [entry]) is True
+    assert is_whitelisted(tmp_path / "docs" / "a.txt", [entry]) is True
+    assert is_whitelisted(tmp_path / "docsx", [entry]) is False
+    assert is_whitelisted(tmp_path / "docs", []) is False

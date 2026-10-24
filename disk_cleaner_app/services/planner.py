@@ -19,7 +19,7 @@ from disk_cleaner_app.cleaners.base import (
     is_junction,
     scan_cancelled,
 )
-from disk_cleaner_app.cleaners.safety import is_dangerous_target
+from disk_cleaner_app.cleaners.safety import is_dangerous_target, is_whitelisted
 from disk_cleaner_app.models.target import LAYER_SAFE
 from disk_cleaner_app.services import elevation
 
@@ -190,11 +190,34 @@ class OperationPlan:
 class Planner:
     """Строит ``OperationPlan`` из выбранных очистителей."""
 
+    def __init__(self, whitelist: list[str] | tuple[str, ...] = ()) -> None:
+        # Пути из белого списка («никогда не удалять») исключаются из плана.
+        self._whitelist = tuple(w for w in whitelist if str(w).strip())
+
     def build(self, cleaners: list[BaseCleaner]) -> OperationPlan:
         plans = [self._plan_cleaner(c) for c in cleaners]
+        self._apply_whitelist(plans)
         self._resolve_overlaps(plans)
         self._collect_warnings(plans)
         return OperationPlan(targets=plans)
+
+    def _apply_whitelist(self, plans: list[TargetPlan]) -> None:
+        if not self._whitelist:
+            return
+        for target in plans:
+            if target.mode != "paths":
+                continue
+            kept = []
+            for action in target.actions:
+                if action.path is not None and is_whitelisted(
+                    action.path, self._whitelist
+                ):
+                    target.skipped.append(f"белый список: {action.path}")
+                else:
+                    kept.append(action)
+            if len(kept) != len(target.actions):
+                target.actions = kept
+                target.recalculate()
 
     # ── одна цель ─────────────────────────────────────
 

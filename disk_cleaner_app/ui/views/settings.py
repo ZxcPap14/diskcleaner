@@ -58,7 +58,7 @@ class SettingsView(MDScrollArea):
     """Страница настроек (прокручиваемая)."""
 
     def __init__(self, parent, theme: ThemeManager,
-                 config_saver: Callable[[str, str], None],
+                 config_saver: Callable[[str, object], None],
                  history_getter, rules_getter, total_freed_getter,
                  config_getter: Callable[[str, object], object] | None = None,
                  on_clear_history=None,
@@ -101,6 +101,7 @@ class SettingsView(MDScrollArea):
         self._build_history()
         self._build_reports()
         self._build_rules()
+        self._build_whitelist()
         self._build_backup()
 
     def _section(self, title: str, subtitle: str, icon: str = "") -> MDCard:
@@ -334,6 +335,91 @@ class SettingsView(MDScrollArea):
             role="muted", font=FONT_CAPTION, anchor="w", justify="left",
             wraplength=720,
         ).pack(fill="x", padx=18, pady=(0, 14))
+
+    def _build_whitelist(self) -> None:
+        card = self._section(
+            "Белый список путей",
+            "Папки и файлы, которые никогда не попадут в план очистки",
+            icon="🛡",
+        )
+
+        entry_row = ctk.CTkFrame(card, fg_color="transparent")
+        entry_row.pack(fill="x", padx=18, pady=(0, 8))
+
+        self.whitelist_var = ctk.StringVar()
+        MDEntry(
+            entry_row, self._theme, textvariable=self.whitelist_var,
+            placeholder_text="Например: D:\\Projects\\важное",
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        MDButton(
+            entry_row, self._theme, "Добавить", self._add_whitelist,
+            kind="filled", width=104, height=32,
+        ).pack(side="left")
+        MDButton(
+            entry_row, self._theme, "Удалить выбранное", self._remove_whitelist,
+            kind="danger_text", width=150, height=32,
+        ).pack(side="left", padx=(4, 0))
+
+        style_treeview("Whitelist", self._theme, row_height=30)
+        table = ctk.CTkFrame(card, fg_color="transparent")
+        table.pack(fill="x", padx=18, pady=(0, 8))
+
+        self.whitelist_tree = ttk.Treeview(
+            table, columns=("path",), show="headings",
+            selectmode="browse", height=4, style="Whitelist.Treeview",
+        )
+        self.whitelist_tree.heading("path", text="Путь", anchor="w")
+        self.whitelist_tree.column("path", width=680, minwidth=300)
+
+        scroll = ctk.CTkScrollbar(
+            table, command=self.whitelist_tree.yview, width=10,
+            fg_color="transparent", button_color=self._theme.colors.OUTLINE_VARIANT,
+            button_hover_color=self._theme.colors.OUTLINE,
+        )
+        self.whitelist_tree.configure(yscrollcommand=scroll.set)
+        self.whitelist_tree.pack(side="left", fill="x", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        MDLabel(
+            card, self._theme,
+            "Действует на глубокую очистку: путь и всё его содержимое "
+            "исключаются из плана и помечаются в списке пропусков.",
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=720,
+        ).pack(fill="x", padx=18, pady=(0, 14))
+        self._refresh_whitelist()
+
+    def _whitelist_entries(self) -> list[str]:
+        raw = self._config_getter("whitelist", [])
+        if isinstance(raw, list):
+            return [str(w) for w in raw if str(w).strip()]
+        return []
+
+    def _refresh_whitelist(self) -> None:
+        for iid in self.whitelist_tree.get_children():
+            self.whitelist_tree.delete(iid)
+        for path in self._whitelist_entries():
+            self.whitelist_tree.insert("", "end", values=(path,))
+
+    def _add_whitelist(self) -> None:
+        path = self.whitelist_var.get().strip()
+        if not path:
+            return
+        entries = self._whitelist_entries()
+        if path not in entries:
+            entries.append(path)
+            self._config_saver("whitelist", entries)
+        self.whitelist_var.set("")
+        self._refresh_whitelist()
+
+    def _remove_whitelist(self) -> None:
+        sel = self.whitelist_tree.selection()
+        if not sel:
+            return
+        path = self.whitelist_tree.item(sel[0], "values")[0]
+        entries = [w for w in self._whitelist_entries() if w != path]
+        self._config_saver("whitelist", entries)
+        self._refresh_whitelist()
 
     def _build_backup(self) -> None:
         card = self._section(

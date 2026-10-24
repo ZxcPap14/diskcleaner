@@ -188,3 +188,20 @@ def validate_custom_path(path: str | Path) -> str:
     if is_protected_path(expanded):
         return "Этот путь защищён: удаление запрещено."
     return ""
+
+
+def is_whitelisted(path: str | Path, entries: list[str] | tuple[str, ...]) -> bool:
+    """Попадает ли путь в белый список («никогда не удалять»).
+
+    Запись белого списка защищает сам путь и всё его содержимое.
+    """
+    if not entries:
+        return False
+    target = _norm(path)
+    for entry in entries:
+        text = str(entry).strip()
+        if not text:
+            continue
+        if _is_within(target, _norm(text)):
+            return True
+    return False
