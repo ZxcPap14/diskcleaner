@@ -191,6 +191,34 @@ class SettingsView(MDScrollArea):
             ),
         ).pack(side="right", padx=(12, 0))
 
+        self._divider(card)
+
+        self.restore_var = ctk.BooleanVar(
+            value=bool(self._config_getter("restore_point", False))
+        )
+        restore = ctk.CTkFrame(card, fg_color="transparent")
+        restore.pack(fill="x", padx=18, pady=(6, 14))
+        restore_text = ctk.CTkFrame(restore, fg_color="transparent")
+        restore_text.pack(side="left", fill="x", expand=True)
+        MDLabel(
+            restore_text, self._theme,
+            "Точка восстановления перед глубокой очисткой", role="on_surface",
+            font=FONT_BODY, anchor="w",
+        ).pack(anchor="w")
+        MDLabel(
+            restore_text, self._theme,
+            "Требует прав администратора и включённого восстановления системы. "
+            "Windows создаёт точки не чаще раза в 24 часа.",
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=620,
+        ).pack(anchor="w")
+        MDSwitch(
+            restore, self._theme, text="", variable=self.restore_var,
+            command=lambda: self._config_saver(
+                "restore_point", str(self.restore_var.get())
+            ),
+        ).pack(side="right", padx=(12, 0))
+
     def _divider(self, parent) -> None:
         ctk.CTkFrame(
             parent, height=1, fg_color=self._theme.colors.OUTLINE_VARIANT,

@@ -31,6 +31,7 @@ from disk_cleaner_app.services.cleaner import CleanEngine, CleanResult
 from disk_cleaner_app.services.elevation import is_admin
 from disk_cleaner_app.services.planner import OperationPlan
 from disk_cleaner_app.services.reports import export_plan_csv, export_plan_json
+from disk_cleaner_app.services.restore_point import create_restore_point
 from disk_cleaner_app.services.scanner import ScanEngine
 from disk_cleaner_app.ui.assets import (
     FONT_BODY,
@@ -1167,6 +1168,11 @@ class DeepCleanView(ctk.CTkFrame):
 
         def worker() -> None:
             token = set_scan_cancel(self._cancel)
+            if bool(ConfigManager().get("restore_point", False)):
+                self._ui.post(self._on_log, "🛡️  Создание точки восстановления…")
+                ok, message = create_restore_point()
+                icon = "✅" if ok else "⚠️"
+                self._ui.post(self._on_log, f"  {icon} {message}")
             results: list[CleanResult] = []
             try:
                 results = self._clean_engine.clean_plan(

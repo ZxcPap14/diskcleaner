@@ -56,7 +56,7 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
-exclude = 'disk_cleaner_app/(core|gui|scanners|analyzer)\.py'
+exclude = 'disk_cleaner_app/legacy'
 
 [[tool.mypy.overrides]]
 module = ["customtkinter", "customtkinter.*", "squarify", "squarify.*"]
