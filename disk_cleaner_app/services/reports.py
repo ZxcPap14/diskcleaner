@@ -12,8 +12,11 @@ import os
 from pathlib import Path
 
 from disk_cleaner_app.models.history import HistoryManager
+from disk_cleaner_app.services.planner import OperationPlan
 
 CSV_COLUMNS = ("id", "date", "items_cleaned", "bytes_freed", "details")
+PLAN_CSV_COLUMNS = ("target_id", "target_name", "layer", "path", "bytes",
+                    "action", "volume")
 
 
 def _prepare_target(path: str | Path, suffix: str) -> Path:
@@ -74,5 +77,60 @@ def export_entries_csv(entries: list[dict], path: str | Path) -> Path:
             if details is not None and not isinstance(details, str):
                 row["details"] = json.dumps(details, ensure_ascii=False)
             writer.writerow(row)
+    os.replace(tmp, target)
+    return target
+
+# ── экспорт плана очистки ──────────────────────────────
+
+
+def _plan_rows(plan: OperationPlan) -> list[dict]:
+    rows: list[dict] = []
+    for target in plan.targets:
+        for act in target.actions:
+            rows.append({
+                "target_id": target.target_id,
+                "target_name": target.cleaner.name,
+                "layer": target.cleaner.layer,
+                "path": str(act.path) if act.path is not None else "",
+                "bytes": act.bytes,
+                "action": act.action,
+                "volume": act.volume,
+            })
+    return rows
+
+
+def build_plan_report(plan: OperationPlan) -> dict:
+    """План в виде словаря: сводка + действия по целям."""
+    rows = _plan_rows(plan)
+    return {
+        "app": "DiskCleaner",
+        "plan_id": plan.id,
+        "created_at": datetime.datetime.fromtimestamp(
+            plan.created_at
+        ).isoformat(timespec="seconds"),
+        "targets": len(plan.targets),
+        "actions": len(rows),
+        "total_bytes": sum(r["bytes"] for r in rows),
+        "warnings": list(plan.warnings),
+        "rows": rows,
+    }
+
+
+def export_plan_json(plan: OperationPlan, path: str | Path) -> Path:
+    target = _prepare_target(path, ".json")
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(build_plan_report(plan), f, indent=2, ensure_ascii=False)
+    os.replace(tmp, target)
+    return target
+
+
+def export_plan_csv(plan: OperationPlan, path: str | Path) -> Path:
+    target = _prepare_target(path, ".csv")
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=PLAN_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(_plan_rows(plan))
     os.replace(tmp, target)
     return target

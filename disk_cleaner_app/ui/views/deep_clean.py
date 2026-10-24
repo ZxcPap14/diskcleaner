@@ -6,7 +6,7 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -30,6 +30,7 @@ from disk_cleaner_app.models.target import (
 from disk_cleaner_app.services.cleaner import CleanEngine, CleanResult
 from disk_cleaner_app.services.elevation import is_admin
 from disk_cleaner_app.services.planner import OperationPlan
+from disk_cleaner_app.services.reports import export_plan_csv, export_plan_json
 from disk_cleaner_app.services.scanner import ScanEngine
 from disk_cleaner_app.ui.assets import (
     FONT_BODY,
@@ -1036,6 +1037,17 @@ class DeepCleanView(ctk.CTkFrame):
         footer.pack(fill="x", padx=20, pady=(0, 16))
 
         MDButton(
+            footer, self._theme, "Экспорт JSON",
+            lambda: self._export_plan(plan, "json", window),
+            kind="outlined", width=120,
+        ).pack(side="left")
+        MDButton(
+            footer, self._theme, "Экспорт CSV",
+            lambda: self._export_plan(plan, "csv", window),
+            kind="outlined", width=120,
+        ).pack(side="left", padx=(6, 0))
+
+        MDButton(
             footer, self._theme, "Закрыть", window.destroy,
             kind="text_muted", width=90,
         ).pack(side="right")
@@ -1049,6 +1061,26 @@ class DeepCleanView(ctk.CTkFrame):
                 footer, self._theme, "Очистить по плану", clean_from_dialog,
                 kind="filled", width=176,
             ).pack(side="right", padx=(0, 6))
+
+    def _export_plan(self, plan: OperationPlan, kind: str, parent) -> None:
+        suffix = ".json" if kind == "json" else ".csv"
+        path = filedialog.asksaveasfilename(
+            parent=parent, title="Экспорт плана очистки",
+            defaultextension=suffix,
+            initialfile=f"DiskCleaner-plan-{plan.id}{suffix}",
+            filetypes=[("JSON", "*.json")] if kind == "json" else [("CSV", "*.csv")],
+        )
+        if not path:
+            return
+        try:
+            if kind == "json":
+                target = export_plan_json(plan, path)
+            else:
+                target = export_plan_csv(plan, path)
+        except OSError as e:
+            messagebox.showerror("Экспорт плана", f"Не удалось сохранить: {e}")
+            return
+        self._on_log(f"💾  План #{plan.id} экспортирован: {target}")
 
     # ── очистка ──────────────────────────────────────
 

@@ -110,3 +110,51 @@ def test_export_entries_csv_serializes_details(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["id"] == "7"
     assert json.loads(rows[0]["details"])[0]["id"] == "chrome"
+
+
+def test_export_plan_json_and_csv(tmp_path: Path) -> None:
+    import json as json_mod
+
+    from disk_cleaner_app.cleaners.base import BaseCleaner
+    from disk_cleaner_app.services.planner import (
+        OperationPlan,
+        PlannedAction,
+        TargetPlan,
+    )
+    from disk_cleaner_app.services.reports import (
+        build_plan_report,
+        export_plan_csv,
+        export_plan_json,
+    )
+
+    class FakeCleaner(BaseCleaner):
+        id = "fake"
+        name = "Fake target"
+        layer = "B"
+
+        def get_size(self) -> int:
+            return 0
+
+        def clean(self) -> tuple[str, str]:
+            return ("OK", "")
+
+    action = PlannedAction(
+        target_id="fake", path=Path("C:/Temp/x.bin"), bytes=123,
+        volume="C:\\", action="path",
+    )
+    plan = OperationPlan(targets=[TargetPlan(cleaner=FakeCleaner(),
+                                             actions=[action])])
+
+    report = build_plan_report(plan)
+    assert report["actions"] == 1
+    assert report["total_bytes"] == 123
+    assert report["rows"][0]["path"].endswith("x.bin")
+
+    json_path = export_plan_json(plan, tmp_path / "plan.json")
+    data = json_mod.loads(json_path.read_text(encoding="utf-8"))
+    assert data["rows"][0]["bytes"] == 123
+
+    csv_path = export_plan_csv(plan, tmp_path / "plan.csv")
+    csv_text = csv_path.read_text(encoding="utf-8-sig")
+    assert "target_name,path,bytes" in csv_text.replace("layer,", "")
+    assert "Fake target" in csv_text
