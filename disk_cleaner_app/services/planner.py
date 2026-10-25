@@ -413,7 +413,13 @@ class Planner:
 
     def _collect_warnings(self, plans: list[TargetPlan]) -> None:
         for target in plans:
-            if target.actions and target.requires_admin and not elevation.is_admin():
+            cleaner = target.cleaner
+            if not cleaner.is_actionable:
+                # Слой E и подобные: цель есть, выполняться не должна.
+                target.blocked = (
+                    "Слой E: только показ — см. подсказку в описании цели."
+                )
+            elif target.actions and target.requires_admin and not elevation.is_admin():
                 target.blocked = "Требуются права администратора."
             if not target.actions:
                 target.skipped.append("нечего очищать")

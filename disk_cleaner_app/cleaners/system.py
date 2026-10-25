@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import ctypes
 import os
+import subprocess
+import time
 from ctypes import wintypes
 from pathlib import Path
 
@@ -16,7 +18,11 @@ from disk_cleaner_app.cleaners.base import (
     safe_rm_contents,
 )
 from disk_cleaner_app.models.item import GROUP_SYSTEM, SafetyLevel
-from disk_cleaner_app.models.target import LAYER_SAFE, LAYER_SYSTEM
+from disk_cleaner_app.models.target import (
+    LAYER_INVENTORY,
+    LAYER_SAFE,
+    LAYER_SYSTEM,
+)
 from disk_cleaner_app.services.elevation import is_admin
 
 USER = Path.home()
@@ -24,6 +30,7 @@ LOCAL_APPDATA = USER / "AppData" / "Local"
 ROAMING_APPDATA = USER / "AppData" / "Roaming"
 WINDIR = Path(os.environ.get("SystemRoot", "C:\\Windows"))
 PROGRAMDATA = Path(os.environ.get("ProgramData", "C:\\ProgramData"))
+SYSTEM_VOLUME = (os.environ.get("SystemDrive", "C:") + "\\").upper()
 
 
 # ── Корзина ────────────────────────────────────────────
@@ -519,6 +526,266 @@ class InternetCacheCleaner(BaseCleaner):
         )
 
 
+# ── Системный слой 5A: DISM, гибернация, VSS, остатки обновлений ──
+
+def run_tool(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
+    """Запустить команду и вернуть (код выхода, stdout, stderr).
+
+    В отличие от ``run_cmd`` здесь важен именно код возврата: у ``powercfg``
+    и ``DISM`` текст ошибки может попадать и в stdout.
+    """
+    try:
+        r = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+    except subprocess.TimeoutExpired:
+        return -1, "", "TIMEOUT"
+    except FileNotFoundError:
+        return -2, "", "программа не найдена"
+    except OSError as e:
+        return -3, "", str(e)
+
+
+def _first_error_line(out: str, err: str) -> str:
+    """Найти осмысленную строку ошибки в выводе консольной утилиты."""
+    for line in (out + "\n" + err).splitlines():
+        line = line.strip()
+        low = line.lower()
+        if line and ("0x" in low or "error" in low or "ошиб" in low):
+            return line
+    return ""
+
+
+class DismCleanupCleaner(BaseCleaner):
+    """WinSxS: StartComponentCleanup без /ResetBase.
+
+    Логический размер WinSxS почти не меняется из-за жёстких ссылок,
+    поэтому ``get_size`` возвращает 0: честное «освобождено» даёт только
+    дельта свободного места тома (движок меряет её сам).
+    """
+
+    id = "dism_cleanup"
+    name = "🧩 WinSxS через DISM"
+    group = GROUP_SYSTEM
+    description = "DISM /Online /Cleanup-Image /StartComponentCleanup (без /ResetBase)"
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_SYSTEM
+    admin_required = True
+    recommended = False
+    why = "Официальная команда Microsoft удаляет заменённые компоненты WinSxS (обычно 2–5 ГБ)."
+    loss = (
+        "Заменённые версии компонентов удаляются: откат отдельных "
+        "обновлений после этого может быть невозможен."
+    )
+    restore_hint = "Без /ResetBase удаление самих обновлений остаётся доступным."
+
+    TIMEOUT = 900  # 15 минут: DISM нельзя прерывать посреди работы.
+
+    def get_size(self) -> int:
+        # Освобождаемое место заранее неизвестно — считаем только по дельте тома.
+        return 0
+
+    def clean(self) -> tuple[str, str]:
+        if not is_admin():
+            return ("ERR", "Нужны права администратора.")
+        rc, out, err = run_tool(
+            [
+                "dism", "/Online", "/Cleanup-Image",
+                "/StartComponentCleanup",
+            ],
+            timeout=self.TIMEOUT,
+        )
+        if err == "TIMEOUT":
+            return (
+                "ERR",
+                "DISM не завершился за 15 минут — результат не измерен. "
+                "Повторите позже, когда система свободна.",
+            )
+        if rc == 0:
+            return ("OK", "Заменные компоненты WinSxS удалены (место — по дельте тома).")
+        problem = _first_error_line(out, err)
+        detail = f"DISM завершился с кодом {rc}."
+        if problem:
+            detail += f" {problem}"
+        else:
+            detail += f" {err or out or 'без подробностей'}"
+        return ("ERR", detail)
+
+
+class HibernationCleaner(BaseCleaner):
+    """Файл гибернации: показ размера + обратимое отключение.
+
+    Не входит в «безопасный набор» и расписание: отключение гибернации —
+    осознанный выбор пользователя, а не обслуживание кэша.
+    """
+
+    id = "hibernation"
+    name = "🌙 Файл гибернации (hiberfil.sys)"
+    group = GROUP_SYSTEM
+    description = (
+        f"Обычно {SYSTEM_VOLUME}hiberfil.sys ≈ 40% оперативной памяти; "
+        "отключается одной командой."
+    )
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_SYSTEM
+    admin_required = True
+    recommended = False
+    why = "Одна из самых больших отдельных файлов на ноутбуках; освобождается немедленно."
+    loss = "Гибернация и быстрый запуск Windows станут недоступны."
+    restore_hint = "Вернуть: powercfg /hibernate on — файл создастся заново."
+
+    def _hiberfil(self) -> Path:
+        return Path(SYSTEM_VOLUME) / "hiberfil.sys"
+
+    def get_size(self) -> int:
+        try:
+            return self._hiberfil().stat().st_size
+        except OSError:
+            return 0
+
+    def clean(self) -> tuple[str, str]:
+        fil = self._hiberfil()
+        if not os.path.lexists(str(fil)):
+            return ("SKIP", "Файл гибернации отсутствует — отключать нечего.")
+        if not is_admin():
+            return ("ERR", "Нужны права администратора.")
+        rc, out, err = run_tool(
+            ["powercfg", "/hibernate", "off"], timeout=60
+        )
+        if rc != 0:
+            message = err or out or f"код {rc}"
+            return (
+                "ERR",
+                f"powercfg: {message}. Возможно, гибернация управляется "
+                "групповой политикой.",
+            )
+        # hiberfil.sys исчезает не мгновенно — даём системе до ~6 секунд.
+        for _ in range(15):
+            if not os.path.lexists(str(fil)):
+                return (
+                    "OK",
+                    "Гибернация отключена, hiberfil.sys освобождён. "
+                    + self.restore_hint,
+                )
+            time.sleep(0.4)
+        return (
+            "OK",
+            "Команда выполнена; место освобождается сразу после снятия "
+            "блокировки файла. " + self.restore_hint,
+        )
+
+
+class VssCleanupCleaner(BaseCleaner):
+    """Старые точки восстановления: оставить самую новую на каждом томе.
+
+    Размер не даёт ни ``vssadmin``, ни логический счёт — поэтому ``get_size``
+    читает ``Win32_ShadowStorage.UsedSpace``, а ``freed`` движок считает
+    только по дельте тома.
+    """
+
+    id = "vss_cleanup"
+    name = "🕓 Старые точки восстановления (VSS)"
+    group = GROUP_SYSTEM
+    description = "Удалить старые точки восстановления; самая новая на каждом томе сохраняется."
+    safety = SafetyLevel.ADVANCED
+    layer = LAYER_SYSTEM
+    admin_required = True
+    recommended = False
+    why = "ShadowStorage растёт незаметно и может занимать до квоты (часто 10% диска)."
+    loss = "Удалённые точки восстановления восстановить нельзя: откат по ним станет невозможен."
+    restore_hint = "Точка восстановления перед очисткой (если включена) — самая новая, она сохраняется."
+
+    def get_size(self) -> int:
+        out, _err = run_powershell(
+            "Get-CimInstance Win32_ShadowStorage | ForEach-Object { $_.UsedSpace }",
+            timeout=60,
+        )
+        total = 0
+        for line in (out or "").splitlines():
+            line = line.strip()
+            if line.isdigit():
+                total += int(line)
+        return total
+
+    def clean(self) -> tuple[str, str]:
+        if not is_admin():
+            return ("ERR", "Нужны права администратора.")
+        script = (
+            "$ErrorActionPreference = 'Stop'; "
+            "$shadows = Get-CimInstance Win32_ShadowCopy "
+            "| Sort-Object InstallDate -Descending; "
+            "$keep = @{}; $removed = 0; "
+            "foreach ($s in $shadows) { "
+            "$v = [string]$s.VolumeName; "
+            "if (-not $keep.ContainsKey($v)) { $keep[$v] = $true; continue }; "
+            "Remove-CimInstance -InstanceId $s.InstanceId -ErrorAction Stop; "
+            "$removed++ }; "
+            "Write-Output ('REMOVED:' + $removed)"
+        )
+        out, err = run_powershell(script, timeout=300)
+        if err == "TIMEOUT":
+            return ("ERR", "Удаление точек восстановления не завершилось за 5 минут.")
+        found = [ln for ln in (out or "").splitlines() if ln.startswith("REMOVED:")]
+        if not found:
+            message = _first_error_line(out, err) or err or out
+            return ("ERR", f"PowerShell: {message or 'неизвестная ошибка'}")
+        removed = found[-1].split(":", 1)[1]
+        if removed == "0":
+            return ("SKIP", "Точек восстановления нет или есть только самая новая.")
+        return (
+            "OK",
+            f"Удалено старых точек: {removed}. Самая новая на каждом томе сохранена.",
+        )
+
+
+class UpdateLeftoversCleaner(BaseCleaner):
+    """Остатки обновления Windows — слой E, только показ.
+
+    Поддерживаемый путь удаления — средства Windows (Память → Временные
+    файлы); ручной rmdir требует захвата владельца и ломает обновления.
+    ``is_actionable = False``: планировщик помечает цель ``blocked``,
+    движок честно SKIP.
+    """
+
+    id = "update_leftovers"
+    name = "📦 Остатки обновления Windows (только показ)"
+    group = GROUP_SYSTEM
+    description = "Windows.old, $WINDOWS.~BT, $WinREAgent, ESD\\Download"
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_INVENTORY
+    admin_required = True
+    recommended = False
+    why = "Нужны для отката обновления Windows (обычно до 10 дней)."
+    loss = "Ручное удаление ломает возможность отката; Windows удалит их сам."
+    restore_hint = "Штатное удаление: Параметры → Система → Память → Временные файлы."
+
+    paths = (
+        Path(SYSTEM_VOLUME) / "Windows.old",
+        Path(SYSTEM_VOLUME) / "$WINDOWS.~BT",
+        Path(SYSTEM_VOLUME) / "$WinREAgent",
+        Path(SYSTEM_VOLUME) / "ESD" / "Download",
+    )
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        return tuple(p for p in self.paths if os.path.lexists(str(p)))
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.paths if p.exists())
+
+    @property
+    def is_actionable(self) -> bool:
+        return False
+
+    def clean(self) -> tuple[str, str]:
+        return (
+            "SKIP",
+            "Слой E: только показ. Удалите штатными средствами Windows — "
+            + self.restore_hint,
+        )
+
+
 # ── Список всех системных очистителей ──
 SYSTEM_CLEANERS = [
     RecycleBinCleaner,
@@ -536,4 +803,8 @@ SYSTEM_CLEANERS = [
     GpuShaderCacheCleaner,
     InternetCacheCleaner,
     PrefetchCleaner,
+    DismCleanupCleaner,
+    HibernationCleaner,
+    VssCleanupCleaner,
+    UpdateLeftoversCleaner,
 ]

@@ -1107,17 +1107,37 @@ class DeepCleanView(ctk.CTkFrame):
         components = [
             t for t in plan.targets if t.layer == LAYER_COMPONENTS and t.actions
         ]
-        blocked = [t for t in plan.targets if t.blocked]
+        # Заблокированные цели делятся на два случая: без прав админа (будут
+        # пропущены) и «только показ» (слой E — размеры в план освобождения
+        # не входят вовсе).
+        blocked_admin = [
+            t for t in plan.targets if t.blocked and t.cleaner.is_actionable
+        ]
+        show_only = [
+            t for t in plan.targets if t.blocked and not t.cleaner.is_actionable
+        ]
+        actionable = [
+            t for t in plan.targets if t.actions and t.cleaner.is_actionable
+        ]
         has_recycle_bin = any(t.cleaner.id == "recycle" for t in plan.targets)
 
+        def _names(targets: list) -> str:
+            return ", ".join(t.cleaner.name for t in targets)
+
         details = [
-            f"Целей: {sum(1 for t in plan.targets if t.actions)} · "
-            f"действий: {plan.action_count}",
-            f"Планируется освободить: {format_bytes(plan.total_bytes)}",
+            f"Целей: {len(actionable)} · "
+            f"действий: {sum(len(t.actions) for t in actionable)}",
+            f"Планируется освободить: "
+            f"{format_bytes(sum(t.planned_bytes for t in actionable))}",
         ]
-        volumes = _volumes_text(plan.total_by_volume)
+        volumes: dict[str, int] = {}
+        for target in actionable:
+            for action in target.actions:
+                volumes[action.volume] = (
+                    volumes.get(action.volume, 0) + action.bytes
+                )
         if volumes:
-            details.append(f"По томам: {volumes}")
+            details.append(f"По томам: {_volumes_text(volumes)}")
 
         if recycle_targets:
             recycled = sum(t.planned_bytes for t in recycle_targets)
@@ -1131,15 +1151,39 @@ class DeepCleanView(ctk.CTkFrame):
                 f"\n⚠️  Компоненты и модели: {format_bytes(size)}. "
                 "Это не кэш — после удаления потребуется скачать заново."
             )
-        if blocked:
+        if show_only:
+            details.append(
+                f"\nℹ️  Только показ, без удаления: {_names(show_only)} — "
+                "смотрите подсказку к цели."
+            )
+        if blocked_admin:
             details.append(
                 f"\n🔒 Без прав администратора будет пропущено целей: "
-                f"{len(blocked)}."
+                f"{len(blocked_admin)}."
             )
         if has_recycle_bin:
             details.append(
                 "\n🗑️  Корзина будет очищена безвозвратно — "
                 "восстановить файлы не получится."
+            )
+
+        running = {
+            t.cleaner.id
+            for t in actionable if not t.blocked
+        }
+        if "vss_cleanup" in running:
+            details.append(
+                "\n⚠️  Старые точки восстановления будут удалены безвозвратно "
+                "(самая новая на каждом томе сохранится)."
+            )
+        if "hibernation" in running:
+            details.append(
+                "\n⚠️  Гибернация и быстрый запуск будут отключены. "
+                "Вернуть: powercfg /hibernate on."
+            )
+        if "dism_cleanup" in running:
+            details.append(
+                "\n⚠️  DISM может работать до 15 минут — прерывать его нельзя."
             )
 
         details.append("\nПродолжить очистку по плану?")
