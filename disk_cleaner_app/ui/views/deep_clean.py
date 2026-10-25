@@ -110,6 +110,19 @@ def _volumes_text(values: dict[str, int]) -> str:
     )
 
 
+def _plural(count: int, one: str, few: str, many: str) -> str:
+    """Русская форма слова для числа: 1 цель, 2 цели, 5 целей."""
+    n = abs(count) % 100
+    if 11 <= n <= 14:
+        return many
+    n %= 10
+    if n == 1:
+        return one
+    if 2 <= n <= 4:
+        return few
+    return many
+
+
 class _LayerCard(ctk.CTkFrame):
     """Компактная карточка слоя: размер, число целей и выбор слоя."""
 
@@ -182,7 +195,7 @@ class _LayerCard(ctk.CTkFrame):
         self._size.configure(
             text=format_bytes(size) if scanned and self._has_targets else "—"
         )
-        parts = [f"{count} целей"]
+        parts = [f"{count} {_plural(count, 'цель', 'цели', 'целей')}"]
         if selected:
             parts.append(f"выбрано {selected}")
         self._count.configure(
@@ -407,7 +420,7 @@ class _LayerGroup(ctk.CTkFrame):
             self.check.deselect()
         self._syncing = False
 
-        parts = [f"{total} целей"]
+        parts = [f"{total} {_plural(total, 'цель', 'цели', 'целей')}"]
         if selected:
             parts.append(f"выбрано {selected}")
         if scanned:
@@ -599,7 +612,7 @@ class DeepCleanView(ctk.CTkFrame):
         self.plan_btn.pack(side="right", padx=(6, 0))
 
         self.report_btn = MDButton(
-            right, self._theme, "Отчёт", self.save_report,
+            right, self._theme, "Отчёт", self._save_report,
             kind="text_muted", width=82, state="disabled",
         )
         self.report_btn.pack(side="right")
@@ -725,7 +738,8 @@ class DeepCleanView(ctk.CTkFrame):
         self._sync_rows()
         self._update_summary()
         self._on_log(
-            f"🛡️  Безопасный набор: {len(self._selected)} целей. "
+            f"🛡️  Безопасный набор: {len(self._selected)} "
+            f"{_plural(len(self._selected), 'цель', 'цели', 'целей')}. "
             "Проверьте план перед очисткой."
         )
 
@@ -768,7 +782,10 @@ class DeepCleanView(ctk.CTkFrame):
         unknown = any(not cleaner.scanned for cleaner in selected)
 
         if count:
-            text = f"Выбрано: {count} целей · {format_bytes(size)}"
+            text = (
+                f"Выбрано: {count} {_plural(count, 'цель', 'цели', 'целей')} · "
+                f"{format_bytes(size)}"
+            )
             if unknown:
                 text += " (часть размеров ещё не измерена)"
         else:
@@ -1068,7 +1085,9 @@ class DeepCleanView(ctk.CTkFrame):
         ).pack(anchor="w")
         MDLabel(
             head, self._theme,
-            f"{len(plan.targets)} целей · {plan.action_count} действий · "
+            f"{len(plan.targets)} "
+            f"{_plural(len(plan.targets), 'цель', 'цели', 'целей')} · "
+            f"{plan.action_count} действий · "
             f"{format_bytes(plan.total_bytes)}"
             + (
                 f" · построен за {self._plan_seconds:.1f} с"

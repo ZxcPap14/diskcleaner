@@ -145,6 +145,7 @@ class MainWindow:
             on_quick_clean=self._quick_clean,
             on_clean_target=self._clean_target_from_dashboard,
             on_drive_change=self._set_dashboard_drive,
+            on_deep_clean=self._go_deep_from_dashboard,
         )
 
         self.views["clean"] = SmartCleanView(
@@ -372,7 +373,9 @@ class MainWindow:
             return
         if not force and getattr(view, "_cleaners", None):
             return
-        view.load_cleaners(self.registry.get_all(include_auto=False))
+        # Auto-discovered кэши тоже попадают на экран глубокой очистки
+        # (5C-3): те же ограничения плана и подтверждения.
+        view.load_cleaners(self.registry.get_all(include_auto=True))
 
     def _quick_clean(self) -> None:
         self._switch_view("clean")
@@ -381,6 +384,17 @@ class MainWindow:
         cv = self.views["clean"]
         if hasattr(cv, "start_scan"):
             cv.start_scan()
+
+    def _go_deep_from_dashboard(self) -> None:
+        """Баннер порога: только предложение, выбор и подтверждение — за Вами."""
+        self._switch_view("deep")
+        self._load_deep_cleaners()
+        view = self.views.get("deep")
+        self.statusbar.log(
+            "Места мало: предложен безопасный набор глубокой очистки."
+        )
+        if view is not None and hasattr(view, "select_safe_set"):
+            view.select_safe_set()
 
     def _on_scan(self) -> None:
         if self.views.get("clean") and hasattr(self.views["clean"], "start_scan"):

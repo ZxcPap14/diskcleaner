@@ -7,6 +7,7 @@ from typing import Any
 import customtkinter as ctk
 
 from disk_cleaner_app.cleaners.base import list_drives
+from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.ui.assets import (
     FONT_BODY,
@@ -47,6 +48,7 @@ class DashboardView(ctk.CTkFrame):
         on_quick_clean,
         on_clean_target=None,
         on_drive_change=None,
+        on_deep_clean=None,
         **kwargs,
     ):
         super().__init__(parent, **kwargs)
@@ -54,6 +56,7 @@ class DashboardView(ctk.CTkFrame):
         self._on_quick_clean = on_quick_clean
         self._on_clean_target = on_clean_target
         self._on_drive_change = on_drive_change
+        self._on_deep_clean = on_deep_clean
         self.configure(fg_color="transparent")
         self._free = 0
         self._total = 0
@@ -108,9 +111,14 @@ class DashboardView(ctk.CTkFrame):
         quick_card.grid(row=0, column=1, sticky="nsew")
         self._build_quick_card(quick_card)
 
+        # ── Баннер «место заканчивается» (5C-1) ───────
+        self.threshold_banner = MDCard(body, self._theme, tone="error_container")
+        self._build_threshold_banner(self.threshold_banner)
+
         # ── Топ целей ─────────────────────────────────
         targets_card = MDCard(body, self._theme, tone="low")
         targets_card.pack(fill="x")
+        self._targets_card = targets_card
         self._build_targets_card(targets_card)
 
         self.refresh_theme()
@@ -301,6 +309,56 @@ class DashboardView(ctk.CTkFrame):
         if self._on_drive_change:
             self._on_drive_change(value)
 
+    # ── баннер порога свободного места (5C-1) ────────
+
+    def _build_threshold_banner(self, card: MDCard) -> None:
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=12)
+        self.banner_text = MDLabel(
+            row, self._theme, "", role="error_container",
+            font=FONT_LABEL, anchor="w", justify="left", wraplength=520,
+        )
+        self.banner_text.pack(side="left", fill="x", expand=True)
+        MDButton(
+            row, self._theme, "Запустить глубокую очистку",
+            self._on_deep_clean,
+            kind="filled", width=210, height=38,
+        ).pack(side="right", padx=(12, 0))
+
+    def _update_threshold_banner(self) -> None:
+        """Показать баннер, если свободного места меньше порога.
+
+        Ничего не запускается автоматически: только предложение,
+        выбор целей и подтверждение остаются за пользователем.
+        """
+        try:
+            threshold_gb = float(ConfigManager().get("deep_threshold_gb", 10))
+        except Exception:
+            threshold_gb = 10.0
+        visible = (
+            threshold_gb > 0
+            and self._total > 0
+            and self._free > 0
+            and self._free / (1024 ** 3) < threshold_gb
+        )
+        if not visible:
+            self.threshold_banner.pack_forget()
+            return
+        free_gb = self._free / (1024 ** 3)
+        self.banner_text.configure(
+            text=(
+                f"⚠️  Свободно {free_gb:.1f} ГБ — меньше порога "
+                f"{threshold_gb:g} ГБ. Предлагаем глубокую очистку: "
+                "безопасный набор уже выбран, подтвердите план и запускайте."
+            )
+        )
+        try:
+            self.threshold_banner.pack(
+                fill="x", pady=(0, SPACE_3), before=self._targets_card
+            )
+        except Exception:
+            self.threshold_banner.pack(fill="x", pady=(0, SPACE_3))
+
     # ── публичное API ────────────────────────────────
 
     def get_drive(self) -> str | None:
@@ -349,6 +407,7 @@ class DashboardView(ctk.CTkFrame):
         if total <= 0:
             self.free_value.configure(text="—")
             self.gauge_label.configure(text="Нет данных о диске")
+            self._update_threshold_banner()
             return
 
         used = total - free
@@ -361,6 +420,7 @@ class DashboardView(ctk.CTkFrame):
                  f"Свободно {100 * free / total:.0f}%  ·  "
                  f"заполнено {100 * used / total:.0f}%"
         )
+        self._update_threshold_banner()
 
     def refresh_theme(self) -> None:
         c = self._theme.colors

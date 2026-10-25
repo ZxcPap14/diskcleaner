@@ -9,11 +9,24 @@ TASK_NAME = "DiskCleanerPro_SmartClean"
 
 
 def _command_line() -> str:
-    """Команда запуска тихой очистки для планировщика."""
+    """Команда запуска тихой очистки для планировщика.
+
+    Режим берётся из настройки ``schedule_mode`` на момент установки
+    задания: ``smart`` (Smart Clean) или ``deep-safe`` (слой A).
+    """
+    from disk_cleaner_app.models.config import ConfigManager
+
+    try:
+        mode = str(ConfigManager().get("schedule_mode", "smart"))
+    except Exception:
+        mode = "smart"
+    flags = "--smart-clean --silent"
+    if mode == "deep-safe":
+        flags = "--smart-clean --deep-safe --silent"
     if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --smart-clean --silent'
+        return f'"{sys.executable}" {flags}'
     entry = sys.argv[0]
-    return f'"{sys.executable}" "{entry}" --smart-clean --silent'
+    return f'"{sys.executable}" "{entry}" {flags}'
 
 
 def install_schedule(day: str = "SUN", at: str = "09:00") -> tuple[bool, str]:

@@ -193,7 +193,7 @@ def _run_docker(args: list[str], timeout: int = 60) -> tuple[str, str]:
     try:
         r = subprocess.run(
             ["docker", *args],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True, text=True, errors="replace", timeout=timeout,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -274,6 +274,32 @@ class DockerSystemCleaner(BaseCleaner):
         return ("OK", "Docker prune выполнен")
 
 
+class NuGetCacheCleaner(_PathCacheCleaner):
+    id = "nuget"
+    name = "📦 NuGet cache"
+    description = "%LocalAppData%\\NuGet\\v3-cache и plugins-cache"
+    paths = (
+        LOCAL / "NuGet" / "v3-cache",
+        LOCAL / "NuGet" / "plugins-cache",
+    )
+
+
+class MavenCacheCleaner(_PathCacheCleaner):
+    id = "maven"
+    name = "📦 Maven repository (~\\.m2)"
+    description = "%UserProfile%\\.m2\\repository — артефакты скачаются заново"
+    paths = (USER / ".m2" / "repository",)
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_COMPONENTS
+
+
+class CondaCacheCleaner(_PathCacheCleaner):
+    id = "conda"
+    name = "📦 Conda pkgs cache"
+    description = "%UserProfile%\\.conda\\pkgs (кэш пакетов conda)"
+    paths = (USER / ".conda" / "pkgs",)
+
+
 DEVTOOLS_CLEANERS = [
     NPmCacheCleaner,
     PipCacheCleaner,
@@ -285,4 +311,7 @@ DEVTOOLS_CLEANERS = [
     PlaywrightBrowsersCleaner,
     VSCodeCacheCleaner,
     DockerSystemCleaner,
+    NuGetCacheCleaner,
+    MavenCacheCleaner,
+    CondaCacheCleaner,
 ]

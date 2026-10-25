@@ -221,6 +221,38 @@ class SettingsView(MDScrollArea):
             ),
         ).pack(side="right", padx=(12, 0))
 
+        self._divider(card)
+
+        self.threshold_var = ctk.StringVar(
+            value=str(self._config_getter("deep_threshold_gb", 10))
+        )
+        threshold_row = ctk.CTkFrame(card, fg_color="transparent")
+        threshold_row.pack(fill="x", padx=18, pady=(6, 14))
+        threshold_text = ctk.CTkFrame(threshold_row, fg_color="transparent")
+        threshold_text.pack(side="left", fill="x", expand=True)
+        MDLabel(
+            threshold_text, self._theme,
+            "Порог свободного места для предложения глубокой очистки",
+            role="on_surface", font=FONT_BODY, anchor="w",
+        ).pack(anchor="w")
+        MDLabel(
+            threshold_text, self._theme,
+            "Если на диске меньше — на главной появится баннер с предложением. "
+            "0 — выключить. Значение в ГБ, Enter для сохранения.",
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=620,
+        ).pack(anchor="w")
+        self.threshold_entry = MDEntry(
+            threshold_row, self._theme,
+            textvariable=self.threshold_var, width=80,
+        )
+        self.threshold_entry.pack(side="right", padx=(12, 0))
+        try:
+            self.threshold_entry.bind("<Return>", self._save_threshold)
+            self.threshold_entry.bind("<FocusOut>", self._save_threshold)
+        except AttributeError:
+            pass
+
     def _divider(self, parent) -> None:
         ctk.CTkFrame(
             parent, height=1, fg_color=self._theme.colors.OUTLINE_VARIANT,
@@ -449,6 +481,18 @@ class SettingsView(MDScrollArea):
             row, self._theme, textvariable=self.sched_time_var, width=80,
         ).pack(side="left")
 
+        MDLabel(
+            row, self._theme, "Режим", role="secondary", font=FONT_LABEL,
+        ).pack(side="left", padx=(10, 4))
+        self.sched_mode_var = ctk.StringVar(
+            value=str(self._config_getter("schedule_mode", "smart"))
+        )
+        ctk.CTkOptionMenu(
+            row,
+            values=["smart", "deep-safe"],
+            variable=self.sched_mode_var, width=120, height=32,
+        ).pack(side="left")
+
         self.sched_install_btn = MDButton(
             row, self._theme, "Создать задание", self._install_schedule,
             kind="filled", width=140, height=32,
@@ -473,18 +517,33 @@ class SettingsView(MDScrollArea):
     def _refresh_schedule(self) -> None:
         from disk_cleaner_app.services.schedule import schedule_exists
 
+        mode = str(self._config_getter("schedule_mode", "smart"))
+        mode_text = "Smart Clean" if mode != "deep-safe" else "Deep: безопасный набор"
         if schedule_exists():
             self.sched_status.configure(
-                text="✅ Задание активно: тихая очистка раз в неделю."
+                text=f"✅ Задание активно: {mode_text}, раз в неделю."
             )
         else:
             self.sched_status.configure(text="Задание не создано.")
+
+    def _save_threshold(self, *_args) -> None:
+        raw = self.threshold_var.get().strip().replace(",", ".")
+        try:
+            value = max(0.0, float(raw))
+        except ValueError:
+            value = 10.0
+        self.threshold_var.set(f"{value:g}")
+        self._config_saver("deep_threshold_gb", str(value))
 
     def _install_schedule(self) -> None:
         from disk_cleaner_app.services.schedule import install_schedule
 
         at = self.sched_time_var.get().strip()
         day = self._DAY_TO_SCHTASKS.get(self.sched_day_var.get(), "SUN")
+        mode = self.sched_mode_var.get().strip() or "smart"
+        if mode not in ("smart", "deep-safe"):
+            mode = "smart"
+        self._config_saver("schedule_mode", mode)
         ok, message = install_schedule(day=day, at=at)
         if not ok:
             messagebox.showerror("Расписание очистки", message)

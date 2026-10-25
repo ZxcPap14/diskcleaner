@@ -61,7 +61,7 @@ def running_processes(timeout: int = 30) -> set[str]:
     try:
         result = subprocess.run(
             ["tasklist", "/NH", "/FO", "CSV"],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True, text=True, errors="replace", timeout=timeout,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         output = result.stdout or ""

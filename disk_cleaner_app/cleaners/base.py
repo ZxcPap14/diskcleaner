@@ -392,7 +392,7 @@ def run_powershell(script: str, timeout: int = 60) -> tuple[str, str]:
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True, text=True, errors="replace", timeout=timeout,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return r.stdout.strip(), r.stderr.strip()
@@ -407,7 +407,7 @@ def run_cmd(command: str, timeout: int = 60) -> tuple[str, str]:
     try:
         r = subprocess.run(
             ["cmd", "/c", command],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True, text=True, errors="replace", timeout=timeout,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return r.stdout.strip(), r.stderr.strip()

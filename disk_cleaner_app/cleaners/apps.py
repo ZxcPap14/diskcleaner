@@ -1,6 +1,7 @@
 """💬 Очистители приложений: Discord, Telegram, Slack, Zoom, Steam, etc."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import BaseCleaner, get_dir_size, safe_rm_contents
@@ -389,6 +390,70 @@ class WSLVhdxInfoCleaner(BaseCleaner):
         )
 
 
+class BattleNetCacheCleaner(BaseCleaner):
+    """Кэш лаунчера Battle.net (квоты, агент, куки) — не файлы игр."""
+
+    id = "battle_net"
+    name = "🎮 Battle.net Cache"
+    group = GROUP_APPS
+    description = "%ProgramData%\\Battle.net\\Agent\\BlizzCache и кэши лаунчера"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = "Кэш лаунчера Battle.net; игры и вход не затрагиваются."
+    loss = "Лаунчер Battle.net загрузится чуть медленнее."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        data = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
+        candidates = (
+            data / "Battle.net" / "Agent" / "BlizzCache",
+            data / "Battle.net" / "Agent" / "blizzard" / "Support",
+            data / "Blizzard Entertainment" / "Battle.net" / "Cache",
+        )
+        return tuple(p for p in candidates if p.is_dir())
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Battle.net cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте Battle.net"
+        )
+
+
+class GogGalaxyCacheCleaner(BaseCleaner):
+    """Web-кэш GOG Galaxy; библиотека игр хранится отдельно."""
+
+    id = "gog_galaxy"
+    name = "🎮 GOG Galaxy Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData% и %ProgramData%\\GOG.com\\Galaxy\\webcache"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = "Web-кэш и HTML-хранилища GOG Galaxy; игры и вход не затрагиваются."
+    loss = "Интерфейс Galaxy загрузится чуть медленнее."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        data = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
+        candidates = (
+            LOCAL / "GOG.com" / "Galaxy" / "webcache",
+            LOCAL / "GOG.com" / "Galaxy" / "webcache.inherited",
+            data / "GOG.com" / "Galaxy" / "webcache",
+        )
+        return tuple(p for p in candidates if p.is_dir())
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "GOG Galaxy cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте GOG Galaxy"
+        )
+
+
 APP_CLEANERS = [
     DiscordCacheCleaner,
     TelegramCacheCleaner,
@@ -403,4 +468,6 @@ APP_CLEANERS = [
     AdobeCacheCleaner,
     JavaCacheCleaner,
     WSLVhdxInfoCleaner,
+    BattleNetCacheCleaner,
+    GogGalaxyCacheCleaner,
 ]

@@ -216,6 +216,8 @@ class MDLabel(ctk.CTkLabel):
         "tertiary": "TERTIARY",
         "error": "ERROR",
         "danger": "ERROR",
+        "error_container": "ON_ERROR_CONTAINER",
+        "on_error": "ON_ERROR",
         "success": "SUCCESS",
         "warning": "WARNING",
         "info": "INFO",

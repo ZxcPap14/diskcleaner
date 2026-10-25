@@ -6,6 +6,8 @@ CLI-режимы:
                                                     затем GUI
     python -m disk_cleaner_app --smart-clean --silent
                                                  — только тихая очистка, без GUI
+    python -m disk_cleaner_app --smart-clean --deep-safe --silent
+                                                 — тихая deep-очистка слоем A
 """
 from __future__ import annotations
 
@@ -25,16 +27,19 @@ def _reconfigure_streams() -> None:
             pass
 
 
-def _run_silent_clean() -> int:
+def _run_silent_clean(mode: str) -> int:
     from disk_cleaner_app.services.auto_clean import run_silent_clean
 
-    summary = run_silent_clean()
+    summary = run_silent_clean(mode=mode)
     from disk_cleaner_app.models.item import format_bytes
 
+    label = summary.get("mode", "smart")
+    skipped = summary.get("skipped", 0)
     print(
-        f"Smart Clean: целей {summary['targets']}, успешно {summary['ok']}, "
-        f"ошибок {summary['failed']}, освобождено "
+        f"Тихая очистка ({label}): целей {summary['targets']}, успешно "
+        f"{summary['ok']}, ошибок {summary['failed']}, освобождено "
         f"{format_bytes(summary['freed'])}"
+        + (f", пропущено действий {skipped}" if skipped else "")
     )
     return 0 if summary["failed"] == 0 else 1
 
@@ -46,6 +51,10 @@ def main() -> None:
         help="выполнить тихую очистку безопасных целей",
     )
     parser.add_argument(
+        "--deep-safe", action="store_true",
+        help="тихая глубокая очистка безопасным набором (слой A, с --smart-clean)",
+    )
+    parser.add_argument(
         "--silent", action="store_true",
         help="не запускать GUI (только с --smart-clean)",
     )
@@ -54,7 +63,10 @@ def main() -> None:
     _reconfigure_streams()
 
     if args.smart_clean:
-        code = _run_silent_clean()
+        from disk_cleaner_app.services.auto_clean import DEEP_SAFE_MODE, SMART_MODE
+
+        mode = DEEP_SAFE_MODE if args.deep_safe else SMART_MODE
+        code = _run_silent_clean(mode)
         if args.silent:
             raise SystemExit(code)
 

@@ -49,7 +49,12 @@ def test_run_silent_clean_summary_and_history(
     config = ConfigManager()
     summary = run_silent_clean(config=config, to_recycle=True)
 
-    assert summary == {"targets": 1, "ok": 2, "failed": 1, "freed": 150}
+    assert summary["targets"] == 1
+    assert summary["ok"] == 2
+    assert summary["failed"] == 1
+    assert summary["freed"] == 150
+    assert summary["mode"] == "smart"
+    assert summary["skipped"] == 0
     assert calls["options"].to_recycle is True
     entry = HistoryManager(db_path=db).get_last()
     assert entry is not None and entry["op_type"] == "smart"

@@ -536,7 +536,8 @@ def run_tool(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
     """
     try:
         r = subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout,
+            args, capture_output=True, text=True, errors="replace",
+            timeout=timeout,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
