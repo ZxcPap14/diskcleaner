@@ -6,9 +6,11 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,12 +23,14 @@ from disk_cleaner_app.cleaners.base import (
 )
 from disk_cleaner_app.cleaners.safety import is_dangerous_target, is_whitelisted
 from disk_cleaner_app.models.target import LAYER_SAFE
-from disk_cleaner_app.services import elevation
+from disk_cleaner_app.services import elevation, running_apps
 
 SYSTEM_DRIVE = (os.environ.get("SystemDrive", "C:") + "\\").upper()
 
 # Верхняя граница числа действий одной цели: защита от дерева на миллион файлов.
 MAX_ACTIONS = 200_000
+
+log = logging.getLogger(__name__)
 
 
 def _key(path: Path) -> str:
@@ -190,16 +194,26 @@ class OperationPlan:
 class Planner:
     """Строит ``OperationPlan`` из выбранных очистителей."""
 
-    def __init__(self, whitelist: list[str] | tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        whitelist: list[str] | tuple[str, ...] = (),
+        running_check: (
+            Callable[[], set[str]] | None
+        ) = running_apps.running_processes,
+    ) -> None:
         # Пути из белого списка («никогда не удалять») исключаются из плана.
         self._whitelist = tuple(w for w in whitelist if str(w).strip())
+        # Проверка запущенных приложений (tasklist): None — отключить
+        # (это делают тесты, чтобы не дёргать систему).
+        self._running_check = running_check
 
     def build(self, cleaners: list[BaseCleaner]) -> OperationPlan:
         plans = [self._plan_cleaner(c) for c in cleaners]
         self._apply_whitelist(plans)
         self._resolve_overlaps(plans)
+        warnings = self._running_warnings(plans)
         self._collect_warnings(plans)
-        return OperationPlan(targets=plans)
+        return OperationPlan(targets=plans, warnings=warnings)
 
     def _apply_whitelist(self, plans: list[TargetPlan]) -> None:
         if not self._whitelist:
@@ -410,6 +424,24 @@ class Planner:
             current = parent
 
     # ── предупреждения ────────────────────────────────
+
+    def _running_warnings(self, plans: list[TargetPlan]) -> list[str]:
+        """Запущенные приложения, чьи кэши попадают в план."""
+        if self._running_check is None:
+            return []
+        target_ids = {
+            target.target_id
+            for target in plans
+            if target.actions and not target.blocked
+        }
+        if not target_ids:
+            return []
+        try:
+            processes = self._running_check()
+        except Exception:
+            log.warning("Проверка запущенных приложений не удалась", exc_info=True)
+            return []
+        return running_apps.warnings_for_targets(target_ids, processes)
 
     def _collect_warnings(self, plans: list[TargetPlan]) -> None:
         for target in plans:

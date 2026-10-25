@@ -1,6 +1,7 @@
 """CleanEngine — безопасное удаление выбранных целей по плану."""
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from disk_cleaner_app.cleaners.base import (
 from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.models.target import LAYER_LEFTOVERS
+from disk_cleaner_app.services import error_kinds as _error_kinds
 from disk_cleaner_app.services.batch_delete import delete_many
 from disk_cleaner_app.services.planner import (
     OperationPlan,
@@ -28,6 +30,8 @@ SYSTEM_DRIVE = (os.environ.get("SystemDrive", "C:") + "\\").upper()
 
 # Размер пачки: между пачками можно отменить операцию.
 DELETE_CHUNK = 2_000
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,6 +54,8 @@ class CleanResult:
     volumes: tuple[str, ...] = ()
     confidence: str = "high"  # high | estimate
     errors: list[str] = field(default_factory=list)
+    # Диагностика неудачных путей: {род причины: количество}.
+    error_kinds: dict[str, int] = field(default_factory=dict)
 
 
 def _config_whitelist() -> list[str]:
@@ -168,6 +174,14 @@ class CleanEngine:
         except Exception as e:  # очиститель не должен ронять весь процесс
             status, detail = "ERR", str(e)
 
+        # Классификация неудачных путей (5B-1): «занято 9, отказ 3».
+        error_sample = errors[:10]
+        try:
+            error_kinds = _error_kinds.classify_paths(error_sample)
+        except Exception:
+            log.warning("Классификация ошибок не удалась", exc_info=True)
+            error_kinds = {}
+
         after = {volume: _free(volume) for volume in volumes}
         deltas = {v: max(0, after.get(v, 0) - before.get(v, 0)) for v in volumes}
         volume_delta = sum(deltas.values())
@@ -201,6 +215,7 @@ class CleanEngine:
             removed=removed,
             errors=errors,
             mode=target.mode,
+            kinds=error_kinds,
         )
 
         return CleanResult(
@@ -217,7 +232,8 @@ class CleanEngine:
             volume_deltas={v: d for v, d in deltas.items() if d > 0},
             volumes=volumes,
             confidence=confidence,
-            errors=errors[:10],
+            errors=error_sample,
+            error_kinds=error_kinds,
         )
 
     def _clean_paths(
@@ -285,19 +301,28 @@ class CleanEngine:
         removed: int = 0,
         errors: list[str] | None = None,
         mode: str = "command",
+        kinds: dict[str, int] | None = None,
     ) -> tuple[str, str]:
         """Скорректировать статус и сформировать понятное пояснение."""
         errors = errors or []
+        kind_counts = kinds or {}
+        reasons = _error_kinds.summarize_kinds(kind_counts)
+        advice = _error_kinds.remediation(kind_counts)
         note = ""
 
         if status != "OK":
+            if errors:
+                note = f"Не удалось удалить объектов: {len(errors)}."
+                if reasons:
+                    note += f" Причины: {reasons}."
+                if advice:
+                    note += f" {advice.capitalize()}."
+                return status, note
             if planned > 0 and remaining >= planned:
                 note = (
                     "Данные не удалены: возможно, нужны права администратора "
                     "или файлы заняты."
                 )
-            elif errors:
-                note = f"Не удалось удалить объектов: {len(errors)}."
             return status, note
 
         if planned <= 0:
@@ -305,12 +330,17 @@ class CleanEngine:
 
         if mode == "paths":
             if removed == 0 and planned > 1024 * 1024:
+                if reasons:
+                    advice_text = f" {advice.capitalize()}." if advice else ""
+                    return "ERR", f"Не удалось удалить данные ({reasons}).{advice_text}"
                 return "ERR", (
                     "Не удалось удалить данные (нужны права администратора "
                     "или файлы заняты другим процессом)."
                 )
             if remaining > 0:
                 note = f"Удалено частично: осталось {format_bytes(remaining)}."
+                if errors:
+                    note += f" Часть файлов пропущена: {len(errors)}."
             elif errors:
                 note = f"Часть файлов пропущена: {len(errors)}."
             elif recycled:
@@ -320,6 +350,10 @@ class CleanEngine:
                     "Файлы удалены, но свободное место не изменилось: "
                     "его могли занять другие процессы."
                 )
+            if errors and reasons:
+                note += f" Причины: {reasons}."
+                if advice:
+                    note += f" {advice.capitalize()}."
             return status, note
 
         # Командные цели: сохраняем прежнюю эвристику.

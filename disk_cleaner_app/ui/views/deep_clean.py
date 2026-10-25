@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import datetime
 import logging
+import os
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -29,6 +31,12 @@ from disk_cleaner_app.models.target import (
 )
 from disk_cleaner_app.services.cleaner import CleanEngine, CleanResult
 from disk_cleaner_app.services.elevation import is_admin
+from disk_cleaner_app.services.error_kinds import (
+    KIND_TITLES,
+    classify_path,
+    remediation,
+    summarize_kinds,
+)
 from disk_cleaner_app.services.planner import OperationPlan
 from disk_cleaner_app.services.reports import export_plan_csv, export_plan_json
 from disk_cleaner_app.services.restore_point import create_restore_point
@@ -77,6 +85,14 @@ def _short_path(path: Path | None, limit: int = 72) -> str:
         return "команда"
     text = str(path)
     return text if len(text) <= limit else "…" + text[-(limit - 1):]
+
+
+def _reason_of(path: str | Path) -> str:
+    """Причина неудачи удаления для конкретного пути («занято», «отказ»…)."""
+    try:
+        return KIND_TITLES.get(classify_path(path), "причина неясна")
+    except Exception:
+        return "причина неясна"
 
 
 def _bind_click(widget, callback: Callable[[], None]) -> None:
@@ -444,6 +460,7 @@ class DeepCleanView(ctk.CTkFrame):
         self._cards: dict[str, _LayerCard] = {}
         self._plan: OperationPlan | None = None
         self._plan_key: frozenset[str] | None = None
+        self._plan_seconds: float = 0.0
         self._results: list[CleanResult] = []
         self._busy = ""
         self._cancel = threading.Event()
@@ -587,6 +604,18 @@ class DeepCleanView(ctk.CTkFrame):
         )
         self.report_btn.pack(side="right")
 
+        self.recycle_btn = MDButton(
+            right, self._theme, "Корзина", self._open_recycle_bin,
+            kind="text_muted", width=100, state="disabled",
+        )
+        self.recycle_btn.pack(side="right", padx=(6, 0))
+
+        self.repeat_btn = MDButton(
+            right, self._theme, "Повторить", self._repeat_clean,
+            kind="outlined", width=110, state="disabled",
+        )
+        self.repeat_btn.pack(side="right", padx=(6, 0))
+
     # ── загрузка целей ───────────────────────────────
 
     def _reload_targets(self) -> None:
@@ -607,6 +636,7 @@ class DeepCleanView(ctk.CTkFrame):
         self._update_summary()
         self._set_result("")
         self.report_btn.configure(state="disabled")
+        self.repeat_btn.configure(state="disabled")
 
     def _update_admin_pill(self) -> None:
         try:
@@ -729,6 +759,7 @@ class DeepCleanView(ctk.CTkFrame):
     def _invalidate_plan(self) -> None:
         self._plan = None
         self._plan_key = None
+        self._plan_seconds = 0.0
 
     def _update_summary(self) -> None:
         count = len(self._selected)
@@ -883,14 +914,17 @@ class DeepCleanView(ctk.CTkFrame):
             token = set_scan_cancel(self._cancel)
             plan: OperationPlan | None = None
             error = ""
+            seconds = 0.0
             try:
+                started = time.perf_counter()
                 plan = self._clean_engine.build_plan(cleaners)
+                seconds = time.perf_counter() - started
             except Exception as e:
                 error = str(e)
                 log.exception("Ошибка построения плана")
             finally:
                 reset_scan_cancel(token)
-            self._ui.post(self._plan_ready, plan, key, callback, error)
+            self._ui.post(self._plan_ready, plan, key, callback, error, seconds)
 
         threading.Thread(target=worker, daemon=True, name="deep-plan").start()
 
@@ -900,6 +934,7 @@ class DeepCleanView(ctk.CTkFrame):
         key: frozenset[str],
         callback: Callable[[OperationPlan], None],
         error: str,
+        seconds: float = 0.0,
     ) -> None:
         self._set_busy("")
         if plan is None:
@@ -908,10 +943,14 @@ class DeepCleanView(ctk.CTkFrame):
 
         self._plan = plan
         self._plan_key = key
+        self._plan_seconds = seconds
+        timing = f", построен за {seconds:.1f} с" if seconds > 0 else ""
         self._on_log(
-            f"🧮  План: {plan.action_count} действий, "
+            f"🧮  План: {plan.action_count} действий{timing}, "
             f"планируется {format_bytes(plan.total_bytes)}."
         )
+        for warning in plan.warnings:
+            self._on_log(f"    ⚠️ {warning}")
         if plan.total_bytes == 0 and plan.action_count == 0:
             messagebox.showinfo(
                 "План пуст",
@@ -928,6 +967,11 @@ class DeepCleanView(ctk.CTkFrame):
             f"Целей: {len(plan.targets)} · действий: {plan.action_count}",
             f"Планируется освободить: {format_bytes(plan.total_bytes)}",
         ]
+        if self._plan_seconds > 0:
+            lines.append(
+                f"Построен за {self._plan_seconds:.1f} с"
+                + (f" · файлов: {plan.action_count}" if plan.action_count else "")
+            )
 
         volumes = _volumes_text(plan.total_by_volume)
         if volumes:
@@ -968,7 +1012,7 @@ class DeepCleanView(ctk.CTkFrame):
             for cleaner in losses[:8]:
                 lines.append(f"  • {cleaner.name}: {_short(cleaner.loss, 150)}")
 
-        warnings: list[str] = []
+        warnings: list[str] = list(plan.warnings)  # запущенные приложения и др.
         for target in plan.targets:
             if target.blocked:
                 warnings.append(f"{target.cleaner.name}: {target.blocked}")
@@ -1025,7 +1069,11 @@ class DeepCleanView(ctk.CTkFrame):
         MDLabel(
             head, self._theme,
             f"{len(plan.targets)} целей · {plan.action_count} действий · "
-            f"{format_bytes(plan.total_bytes)}",
+            f"{format_bytes(plan.total_bytes)}"
+            + (
+                f" · построен за {self._plan_seconds:.1f} с"
+                if self._plan_seconds > 0 else ""
+            ),
             role="secondary", font=FONT_BODY, anchor="w",
         ).pack(anchor="w", pady=(2, 0))
 
@@ -1151,6 +1199,8 @@ class DeepCleanView(ctk.CTkFrame):
                 f"\n⚠️  Компоненты и модели: {format_bytes(size)}. "
                 "Это не кэш — после удаления потребуется скачать заново."
             )
+        for warning in plan.warnings:
+            details.append(f"\n⚠️  {warning}")
         if show_only:
             details.append(
                 f"\nℹ️  Только показ, без удаления: {_names(show_only)} — "
@@ -1265,6 +1315,12 @@ class DeepCleanView(ctk.CTkFrame):
         recycled = sum(r.planned for r in results if r.recycled)
         errors = sum(len(r.errors) for r in results)
 
+        # Агрегат причин по всем целям: {род: количество} (5B-1).
+        kinds: dict[str, int] = {}
+        for result in results:
+            for kind, count in result.error_kinds.items():
+                kinds[kind] = kinds.get(kind, 0) + count
+
         by_volume: dict[str, int] = {}
         for result in results:
             for volume, delta in result.volume_deltas.items():
@@ -1292,14 +1348,20 @@ class DeepCleanView(ctk.CTkFrame):
                 "место освободится после её очистки."
             )
         if errors:
-            self._on_log(
-                f"⚠️  Не удалось удалить объектов: {errors}. "
-                "Первые причины:"
-            )
+            message = f"⚠️  Не удалось удалить объектов: {errors}."
+            kinds_text = summarize_kinds(kinds)
+            if kinds_text:
+                message += f" Причины: {kinds_text}."
+            advice = remediation(kinds)
+            if advice:
+                message += f" {advice.capitalize()}."
+            self._on_log(message)
             shown = 0
             for result in results:
-                for error in result.errors[:2]:
-                    self._on_log(f"    · {_short(error, 120)}")
+                for error in result.errors[:3]:
+                    self._on_log(
+                        f"    · {_short(error, 105)} — {_reason_of(error)}"
+                    )
                     shown += 1
                     if shown >= 3:
                         break
@@ -1309,8 +1371,13 @@ class DeepCleanView(ctk.CTkFrame):
         parts = [
             f"Освобождено: {format_bytes(freed)}",
             f"В корзину: {format_bytes(recycled)}",
-            f"Ошибки: {errors}",
         ]
+        error_text = f"Ошибки: {errors}"
+        if errors:
+            kinds_text = summarize_kinds(kinds)
+            if kinds_text:
+                error_text = f"Ошибки: {errors} ({kinds_text})"
+        parts.append(error_text)
         if by_volume:
             parts.append(f"По томам: {_volumes_text(by_volume)}")
         self._set_result(
@@ -1319,6 +1386,10 @@ class DeepCleanView(ctk.CTkFrame):
 
         self._save_history(results, freed)
         self.report_btn.configure(state="normal")
+        self.recycle_btn.configure(state="normal")
+        self.repeat_btn.configure(
+            state="normal" if errors else "disabled"
+        )
         self._on_log(f"🧮  План #{plan.id} выполнен.")
 
     def _save_report(self) -> None:
@@ -1437,6 +1508,36 @@ class DeepCleanView(ctk.CTkFrame):
             self.result_label.pack(anchor="w", pady=(0, 1), before=self.summary_label)
         else:
             self.result_label.pack_forget()
+
+    # ── действия результата: корзина и повтор ────────
+
+    def _open_recycle_bin(self) -> None:
+        try:
+            os.startfile("shell:RecycleBinFolder")  # noqa: S606
+        except Exception as e:
+            self._on_log(f"❌ Не удалось открыть корзину: {e}")
+
+    def _repeat_clean(self) -> None:
+        """Повторная очистка только тех целей, где остались ошибки."""
+        failed = sorted(
+            result.cleaner.id
+            for result in (self._results or [])
+            if result.errors
+        )
+        if not failed:
+            messagebox.showinfo(
+                "Повторить очистку",
+                "Ошибок в последней очистке нет — повторять нечего.",
+            )
+            return
+        self._selected = {identifier for identifier in failed}
+        self._invalidate_plan()
+        self._sync_rows()
+        self._update_summary()
+        self._on_log(
+            f"↻  Повтор для целей с ошибками: {len(self._selected)}."
+        )
+        self.start_clean()
 
     # ── тема/жизненный цикл ──────────────────────────
 
