@@ -104,6 +104,14 @@ class CleanerRegistry:
         """Вернуть все Cleaner'ы (инстансы)."""
         items: list[BaseCleaner] = [cls() for cls in self._builtin_classes]
 
+        # Декларативные цели из JSON (встроенные + пользовательские).
+        try:
+            from disk_cleaner_app.services.json_targets import load_json_targets
+
+            items.extend(load_json_targets())
+        except Exception:
+            logger.warning("JSON-цели не загружены", exc_info=True)
+
         if include_auto:
             items.extend(auto_discover_items())
 

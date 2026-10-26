@@ -103,6 +103,16 @@ def _builtin_affected_paths() -> list[Path]:
                 getattr(cleaner_class, "id", cleaner_class),
                 exc_info=True,
             )
+
+    # Декларативные JSON-цели тоже сужают область discover — иначе
+    # он найдёт их же кэши второй раз.
+    try:
+        from disk_cleaner_app.services.json_targets import load_json_targets
+
+        for cleaner in load_json_targets():
+            roots.extend(cleaner.affected_paths())
+    except Exception:
+        log.debug("JSON-цели не вошли в covered-корни", exc_info=True)
     return roots
 
 
