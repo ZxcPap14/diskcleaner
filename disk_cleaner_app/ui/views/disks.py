@@ -12,9 +12,10 @@ from disk_cleaner_app.services.disk_health import (
     format_disk_row,
     format_hours,
     format_temperature,
+    health_badge,
     health_icon,
     list_disks,
-    smart_summary,
+    smart_rows,
 )
 from disk_cleaner_app.services.elevation import is_admin
 from disk_cleaner_app.services.surface_scan import (
@@ -395,32 +396,46 @@ class DisksView(ctk.CTkFrame):
         wear = disk.get("wear")
         wear_text = f"{wear}%" if isinstance(wear, int) and wear >= 0 else "—"
         code = disk.get("health", "?")
+        badge_code, badge_label, badge_icon = health_badge(disk)
         temp_line = format_temperature(temp)
         lines = [
             f"{health_icon(code)}  {disk.get('model', '—')}",
+            f"Состояние: {badge_icon} {badge_label}   ·   "
+            f"HealthStatus: {code}   ·   износ: {wear_text}",
             f"Физический диск: PhysicalDrive{disk.get('index', 0)}   ·   "
             f"шина: {disk.get('bus') or '—'}   ·   тип: {disk.get('media') or '—'}",
             f"Объём: {format_bytes(int(disk.get('size') or 0))}   ·   "
             f"состояние: {code} ({disk.get('status') or '—'})",
             f"Температура: {temp_line}   ·   "
             f"наработка: {format_hours(disk.get('hours'))}",
-            f"Износ: {wear_text}   ·   ошибки чтения/записи: "
+            f"Ошибки чтения/записи: "
             f"{disk.get('read_errors') if disk.get('read_errors') is not None else '—'}"
             f" / "
             f"{disk.get('write_errors') if disk.get('write_errors') is not None else '—'}",
             f"Серийный номер: {disk.get('serial') or '—'}",
         ]
-        summary = smart_summary(disk)
-        if summary:
+        rows = smart_rows(disk)
+        if rows:
+            source = {
+                "ata": "ATA-атрибуты",
+                "counters": "показатели системы (reliability)",
+            }.get(disk.get("smart_source", ""), "SMART")
             lines.append("")
-            lines.append(f"SMART: {summary}")
+            lines.append(f"SMART ({source}):")
+            width = max(len(title) for title, _v, _m in rows)
+            for title, value, mark in rows:
+                lines.append(f"  {title.ljust(width)}   {value}   {mark}".rstrip())
         elif is_admin():
+            lines.append("")
             lines.append(
-                "Сырые SMART-атрибуты: диск не отдал ATA-данные (NVMe/USB)."
+                "SMART: диск не отдал данные (NVMe/USB-мост без доступа); "
+                "показатели выше — из системы."
             )
         else:
+            lines.append("")
             lines.append(
-                "Сырые SMART-атрибуты: нужны права администратора (🛡️)."
+                "SMART-атрибуты: нужны права администратора (🛡️) — "
+                "показатели выше взяты из системы без них."
             )
         return "\n".join(lines)
 
