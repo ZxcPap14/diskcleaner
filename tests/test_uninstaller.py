@@ -421,3 +421,104 @@ def test_row_values_marks_portable_and_disk() -> None:
 
     unknown = UninstallerView._row_values({"name": "X"})
     assert unknown[1] == "—"
+
+
+# ── UWP/Store и точка восстановления (4.16.0) ───────────
+
+
+def test_parse_uwp_records_filters_frameworks_and_builds_commands() -> None:
+    import json
+
+    location = str(Path("C:") / "Program Files" / "WindowsApps" / "Calc")
+    raw = json.dumps([
+        {
+            "name": "Microsoft.WindowsCalculator",
+            "fullname": "Micro.Calc_1.0_x64__8weky",
+            "version": "1.0",
+            "publisher": "Microsoft",
+            "location": location,
+        },
+        {
+            "name": "Microsoft.VCLibs",
+            "fullname": "Micro.VCLibs_1_x64__8weky",
+            "version": "1.0",
+            "publisher": "Microsoft",
+            "location": "",
+        },
+        {"name": "", "fullname": "Broken", "version": "", "publisher": "",
+         "location": ""},
+    ])
+    # Фреймворк отфильтрован ещё в PowerShell (IsFramework), до парсера
+    # доходят только удаляемые пакеты; битые записи пропускает парсер.
+    apps = AppUninstaller.parse_uwp_records(raw)
+
+    assert len(apps) == 1
+    app = apps[0]
+    assert app["name"] == "Microsoft.WindowsCalculator"
+    assert app["uwp"] is True
+    assert app["drive"] == "C:"
+    assert "Remove-AppxPackage -Package 'Micro.Calc_1.0_x64__8weky'" in app["uninstall_string"]
+    assert app["uninstall_string"] == app["quiet_uninstall"]
+
+
+def test_parse_uwp_records_handles_single_object_and_garbage() -> None:
+    single = '{"name": "App", "fullname": "App_1_x64__8weky", "version": "1", "publisher": "", "location": ""}'
+    apps = AppUninstaller.parse_uwp_records(single)
+    assert len(apps) == 1
+
+    assert AppUninstaller.parse_uwp_records("") == []
+    assert AppUninstaller.parse_uwp_records("не json") == []
+    assert AppUninstaller.parse_uwp_records("[]") == []
+
+
+def test_restore_point_logs_disabled_or_empty() -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    calls: list[str] = []
+
+    def fake_point(description: str) -> tuple[bool, str]:
+        calls.append(description)
+        return True, "Точка восстановления создана"
+
+    assert uninstaller.restore_point_logs([], fake_point, enabled=True) == []
+    assert uninstaller.restore_point_logs(
+        [{"name": "A"}], fake_point, enabled=False
+    ) == []
+    assert calls == []
+
+
+def test_restore_point_logs_success_and_failure() -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+
+    def ok_point(description: str) -> tuple[bool, str]:
+        assert description == "DiskCleaner Pro — перед удалением программ"
+        return True, "Точка восстановления создана"
+
+    logs = uninstaller.restore_point_logs([{"name": "A"}], ok_point, enabled=True)
+    assert logs == ["🛡️  Точка восстановления создана"]
+
+    def fail_point(_description: str) -> tuple[bool, str]:
+        return False, "Точка восстановления не создана: нужны права администратора"
+
+    logs = uninstaller.restore_point_logs([{"name": "A"}], fail_point, enabled=True)
+    assert logs and "продолжится без неё" in logs[0]
+
+
+def test_uwp_note_in_confirmation() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    uwp_apps = [{"name": f"App{i}", "uwp": True} for i in range(5)]
+    note = UninstallerView._uwp_note(uwp_apps)
+    assert "Remove-AppxPackage" in note
+    assert "App0, App1, App2" in note and "и ещё 2" in note
+
+    assert UninstallerView._uwp_note([{"name": "Win32"}]) == ""
+    assert UninstallerView._uwp_note([]) == ""
+
+
+def test_row_values_marks_uwp() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    row = UninstallerView._row_values(
+        {"name": "Microsoft.WindowsCalculator", "uwp": True, "drive": "C:"}
+    )
+    assert row[0] == "🪟 Microsoft.WindowsCalculator"

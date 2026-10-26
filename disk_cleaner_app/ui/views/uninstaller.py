@@ -6,6 +6,7 @@ from tkinter import messagebox, ttk
 
 import customtkinter as ctk
 
+from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.services.large_files import reveal_in_explorer
 from disk_cleaner_app.services.uninstaller import AppUninstaller
@@ -249,15 +250,19 @@ class UninstallerView(ctk.CTkFrame):
 
         def worker():
             apps = self._uninstaller.get_installed()
+            try:
+                uwp = self._uninstaller.get_uwp_apps()
+            except Exception:
+                uwp = []
             known = [
                 str(a.get("install_location", ""))
-                for a in apps if a.get("install_location")
+                for a in (*apps, *uwp) if a.get("install_location")
             ]
             try:
                 portable = self._uninstaller.get_portable(known_locations=known)
             except Exception:
                 portable = []
-            self._ui.post(self._display, apps + portable)
+            self._ui.post(self._display, [*apps, *uwp, *portable])
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -398,6 +403,8 @@ class UninstallerView(ctk.CTkFrame):
         name = str(app.get("name", ""))
         if app.get("portable"):
             name = f"📦 {name}"
+        elif app.get("uwp"):
+            name = f"🪟 {name}"
         return (
             name,
             str(app.get("drive") or "—"),
@@ -491,6 +498,19 @@ class UninstallerView(ctk.CTkFrame):
         self.tree.selection_set(iid)
         self._uninstall_selected()
 
+    @staticmethod
+    def _uwp_note(apps: list[dict]) -> str:
+        """Пометка о UWP-пакетах для окна подтверждения."""
+        uwp = [a for a in apps if a.get("uwp")]
+        if not uwp:
+            return ""
+        names = ", ".join(a.get("name", "?") for a in uwp[:3])
+        more = f" и ещё {len(uwp) - 3}" if len(uwp) > 3 else ""
+        return (
+            f"\n\nUWP/Store ({names}{more}) удаляются через Remove-AppxPackage "
+            "для текущего пользователя."
+        )
+
     def _confirm_uninstall(self, apps: list[dict]) -> bool:
         name = apps[0].get("name", "?")
         if len(apps) == 1:
@@ -498,7 +518,8 @@ class UninstallerView(ctk.CTkFrame):
                 "Удаление",
                 f"Удалить '{name}'?\n\n"
                 "Будет запущен штатный деинсталлятор программы.\n"
-                "Остатки автоматически не удаляются — их можно найти отдельно.",
+                "Остатки автоматически не удаляются — их можно найти отдельно."
+                + self._uwp_note(apps),
             )
         lines = "\n".join(f"• {a.get('name', '?')}" for a in apps[:8])
         tail = f"\n… и ещё {len(apps) - 8}." if len(apps) > 8 else ""
@@ -506,7 +527,8 @@ class UninstallerView(ctk.CTkFrame):
             "Очередь удаления",
             f"Удалить {len(apps)} программ?\n\n{lines}{tail}\n\n"
             "Деинсталляторы запускаются по очереди. Каждый может показать "
-            "свои диалоги; очередь продолжится после его завершения.",
+            "свои диалоги; очередь продолжится после его завершения."
+            + self._uwp_note(apps),
         )
 
     def _confirm_portable(self, apps: list[dict]) -> bool:
@@ -561,6 +583,21 @@ class UninstallerView(ctk.CTkFrame):
         self.log_text.configure(state="disabled")
 
         def worker():
+            # Точка восстановления — по настройке «restore_point», только
+            # для программ с деинсталлятором (портативные уходят в корзину,
+            # это обратимо и без точки).
+            try:
+                enabled = bool(
+                    ConfigManager().get("restore_point", False)
+                )
+            except Exception:
+                enabled = False
+            for line in self._uninstaller.restore_point_logs(
+                installed,
+                create_point=self._create_restore_point,
+                enabled=enabled,
+            ):
+                self._ui.post(self._show_log, [line])
             if installed:
                 self._uninstaller.uninstall_many(
                     installed,
@@ -583,6 +620,12 @@ class UninstallerView(ctk.CTkFrame):
 
         threading.Thread(target=worker, daemon=True,
                          name="uninstaller-queue").start()
+
+    def _create_restore_point(self, description: str) -> tuple[bool, str]:
+        """Обёртка для потока очереди: сервис требует прав администратора."""
+        from disk_cleaner_app.services.restore_point import create_restore_point
+
+        return create_restore_point(description)
 
     def _open_install_folder(self) -> None:
         app = self._selected_app()
@@ -637,6 +680,13 @@ class UninstallerView(ctk.CTkFrame):
                 "Остатки",
                 "У портативной программы остатки не ищутся — это одна папка.\n"
                 "Убрать её в корзину можно кнопкой «Удалить выбранные».",
+            )
+            return
+        if app.get("uwp"):
+            messagebox.showinfo(
+                "Остатки",
+                "UWP-пакет управляется Windows: удаление выполняется целиком "
+                "через Remove-AppxPackage, остатков после него не остаётся.",
             )
             return
 

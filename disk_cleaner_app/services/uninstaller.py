@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import ctypes
 import datetime
+import json
+import logging
 import os
 import string
 import subprocess
@@ -17,6 +19,8 @@ from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import get_dir_size
 from disk_cleaner_app.services.batch_delete import delete_many
+
+log = logging.getLogger(__name__)
 
 _DRIVE_FIXED = 3
 # FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM — служебные каталоги тома.
@@ -48,6 +52,26 @@ def _drive_type(root: str) -> int:
         )
     except Exception:
         return 0
+
+
+# Пакеты-зависимости: удалять их отдельно нельзя, приложения сломаются.
+# PowerShell отфильтровывает IsFramework, здесь — страховка на случай,
+# если свойство у драйвера пакета не заполнено.
+_UWP_DEPENDENCY_PREFIXES = (
+    "Microsoft.VCLibs",
+    "Microsoft.NET.Native",
+    "Microsoft.UI.Xaml",
+    "Microsoft.WindowsAppRuntime",
+    "Microsoft.Win32WebViewHost",
+)
+
+
+def _is_uwp_dependency(name: str) -> bool:
+    lowered = name.casefold()
+    return any(
+        lowered.startswith(prefix.casefold())
+        for prefix in _UWP_DEPENDENCY_PREFIXES
+    )
 
 
 class AppUninstaller:
@@ -177,6 +201,82 @@ class AppUninstaller:
             return ""
         drive = os.path.splitdrive(raw)[0]
         return drive.upper() if len(drive) == 2 and drive.endswith(":") else ""
+
+    # ── UWP/Store-приложения ─────────────────────────────
+
+    _UWP_SCRIPT = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Get-AppxPackage |
+  Where-Object { -not $_.IsFramework -and $_.NonRemovable -ne $true } |
+  ForEach-Object {
+    [pscustomobject]@{
+      name = [string]$_.Name
+      fullname = [string]$_.PackageFullName
+      version = [string]$_.Version
+      publisher = [string]$_.Publisher
+      location = [string]$_.InstallLocation
+    }
+  } | ConvertTo-Json -Depth 3 -Compress
+"""
+
+    def get_uwp_apps(self) -> list[dict]:
+        """UWP/Store-приложения текущего пользователя (без фреймворков)."""
+        try:
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 self._UWP_SCRIPT],
+                capture_output=True, timeout=60,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            raw = completed.stdout.decode("utf-8", errors="replace")
+        except (OSError, subprocess.SubprocessError) as e:
+            log.error("Get-AppxPackage недоступен: %s", e)
+            return []
+        return self.parse_uwp_records(raw)
+
+    @classmethod
+    def parse_uwp_records(cls, raw: str) -> list[dict]:
+        """Разобрать вывод ``Get-AppxPackage`` в записи списка удаления."""
+        text = (raw or "").strip()
+        if not text:
+            return []
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            log.warning("Не удалось разобрать Get-AppxPackage: %s", text[:200])
+            return []
+        if isinstance(payload, dict):
+            payload = [payload]
+        apps: list[dict] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            fullname = str(item.get("fullname") or "").strip()
+            if not name or not fullname or _is_uwp_dependency(name):
+                continue
+            location = str(item.get("location") or "").strip()
+            uninstall_cmd = (
+                "powershell -NoProfile -Command "
+                f"Remove-AppxPackage -Package '{fullname}'"
+            )
+            apps.append({
+                "name": name,
+                "version": str(item.get("version") or "").strip(),
+                "publisher": str(item.get("publisher") or "").strip(),
+                "install_date": "",
+                "size_kb": 0,
+                "uninstall_string": uninstall_cmd,
+                "quiet_uninstall": uninstall_cmd,
+                "install_location": location,
+                "drive": cls._drive_of(location),
+                "registry_key": "",
+                "uninstall_key": fullname,
+                "uwp": True,
+            })
+        apps.sort(key=lambda x: x["name"].lower())
+        return apps
 
     # ── диски и портативные программы ────────────────────
 
@@ -352,6 +452,25 @@ class AppUninstaller:
             return default
 
     # ── официальное удаление ────────────────────────────
+
+    def restore_point_logs(
+        self,
+        apps: list[dict],
+        create_point: Callable[[str], tuple[bool, str]],
+        enabled: bool = True,
+    ) -> list[str]:
+        """Строки журнала о точке восстановления перед очередью удаления.
+
+        Портативные программы не учитываются: их папки уходят в корзину,
+        это и так обратимо. Сбой создания не останавливает очередь —
+        пользователь видит причину в журнале.
+        """
+        if not enabled or not apps:
+            return []
+        ok, message = create_point("DiskCleaner Pro — перед удалением программ")
+        if ok:
+            return [f"🛡️  {message}"]
+        return [f"⚠️  {message} — удаление продолжится без неё"]
 
     def uninstall(self, app: dict) -> list[str]:
         """Запустить штатный деинсталлятор. Остатки не трогает."""

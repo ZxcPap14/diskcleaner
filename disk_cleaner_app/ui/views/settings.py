@@ -204,8 +204,8 @@ class SettingsView(MDScrollArea):
         restore_text.pack(side="left", fill="x", expand=True)
         MDLabel(
             restore_text, self._theme,
-            "Точка восстановления перед глубокой очисткой", role="on_surface",
-            font=FONT_BODY, anchor="w",
+            "Точка восстановления перед глубокой очисткой и удалением программ",
+            role="on_surface", font=FONT_BODY, anchor="w",
         ).pack(anchor="w")
         MDLabel(
             restore_text, self._theme,
