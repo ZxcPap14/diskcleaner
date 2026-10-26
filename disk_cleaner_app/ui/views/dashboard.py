@@ -9,6 +9,13 @@ import customtkinter as ctk
 from disk_cleaner_app.cleaners.base import list_drives
 from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import format_bytes
+from disk_cleaner_app.services.disk_usage import (
+    forecast_free,
+    forecast_text,
+    insufficient_data,
+    record_snapshot,
+    usage_series,
+)
 from disk_cleaner_app.ui.assets import (
     FONT_BODY,
     FONT_CAPTION,
@@ -29,6 +36,7 @@ from disk_cleaner_app.ui.components.md3 import (
     PageHeader,
     SectionTitle,
 )
+from disk_cleaner_app.ui.components.usage_chart import UsageTrendChart
 from disk_cleaner_app.ui.theme import ThemeManager
 
 
@@ -49,6 +57,7 @@ class DashboardView(ctk.CTkFrame):
         on_clean_target=None,
         on_drive_change=None,
         on_deep_clean=None,
+        history=None,
         **kwargs,
     ):
         super().__init__(parent, **kwargs)
@@ -57,6 +66,7 @@ class DashboardView(ctk.CTkFrame):
         self._on_clean_target = on_clean_target
         self._on_drive_change = on_drive_change
         self._on_deep_clean = on_deep_clean
+        self._history = history
         self.configure(fg_color="transparent")
         self._free = 0
         self._total = 0
@@ -110,6 +120,11 @@ class DashboardView(ctk.CTkFrame):
         quick_card = MDCard(middle, self._theme, tone="primary_container")
         quick_card.grid(row=0, column=1, sticky="nsew")
         self._build_quick_card(quick_card)
+
+        # ── Тренд занятости и прогноз (4.15.0) ────────
+        trend_card = MDCard(body, self._theme, tone="low")
+        trend_card.pack(fill="x", pady=(0, SPACE_3))
+        self._build_trend_card(trend_card)
 
         # ── Баннер «место заканчивается» (5C-1) ───────
         self.threshold_banner = MDCard(body, self._theme, tone="error_container")
@@ -201,6 +216,64 @@ class DashboardView(ctk.CTkFrame):
             role="muted", font=FONT_CAPTION, anchor="w", justify="left",
             wraplength=250,
         ).pack(anchor="w")
+
+    def _build_trend_card(self, card: MDCard) -> None:
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=18, pady=(14, 4))
+        SectionTitle(
+            top, self._theme, "Занятость по дням",
+            "Снапшоты при очистках и запусках, не чаще раза в 6 ч",
+        ).pack(side="left")
+
+        self.trend_chart = UsageTrendChart(
+            card, self._theme, height=120,
+        )
+        self.trend_chart.pack(fill="x", padx=18, pady=(2, 4))
+
+        self.forecast_label = MDLabel(
+            card, self._theme, "", role="muted", font=FONT_LABEL,
+            anchor="w", justify="left", wraplength=640,
+        )
+        self.forecast_label.pack(fill="x", padx=18, pady=(0, 12))
+        self._update_trend()
+
+    def _update_trend(self) -> None:
+        """Перечитать снапшоты текущего тома и прогноз."""
+        history = self._history
+        if history is None:
+            self.forecast_label.configure(
+                text="Прогноз недоступен: история отключена."
+            )
+            return
+        volume = self._drive or "C:\\"
+        try:
+            record_snapshot(history)
+            series = usage_series(history, volume)
+        except Exception:
+            self.forecast_label.configure(
+                text="Прогноз недоступен: не удалось прочитать историю."
+            )
+            return
+
+        points = []
+        for item in series:
+            date_text = str(item.get("date", ""))[:10]
+            parts = date_text.split("-")
+            label = f"{parts[2]}.{parts[1]}" if len(parts) == 3 else date_text
+            points.append((label, int(item.get("free", 0))))
+        self.trend_chart.set_series(points)
+
+        forecast = forecast_free(series)
+        if forecast:
+            text = forecast_text(forecast)
+        elif insufficient_data(series):
+            text = forecast_text(None)
+        else:
+            text = (
+                "По наблюдениям место не убывает — прогноз не требуется. "
+                f"Точек: {len(series)}."
+            )
+        self.forecast_label.configure(text=text)
 
     def _build_quick_card(self, card: MDCard) -> None:
         c = self._theme.colors
@@ -306,6 +379,7 @@ class DashboardView(ctk.CTkFrame):
 
     def _on_drive_pick(self, value: str) -> None:
         self._drive = value
+        self._update_trend()
         if self._on_drive_change:
             self._on_drive_change(value)
 
@@ -404,6 +478,7 @@ class DashboardView(ctk.CTkFrame):
             label.configure(text=text)
 
         self.gauge.set_values(free, total)
+        self._update_trend()
         if total <= 0:
             self.free_value.configure(text="—")
             self.gauge_label.configure(text="Нет данных о диске")

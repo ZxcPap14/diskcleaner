@@ -12,7 +12,7 @@ from disk_cleaner_app.models.config import CONFIG_DIR
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Понятные имена типов операций (для фильтра в UI).
 OP_TYPES = ("smart", "deep", "clean")
@@ -59,6 +59,19 @@ class HistoryManager:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_history_date ON history(date)"
             )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS disk_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT,
+                    volume TEXT,
+                    free_bytes INTEGER,
+                    total_bytes INTEGER
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snapshots_volume_date "
+                "ON disk_snapshots(volume, date)"
+            )
             self._migrate(conn)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -95,7 +108,12 @@ class HistoryManager:
     def add_operation(
         self, results: list[dict], bytes_freed: int, op_type: str = "clean"
     ) -> None:
-        """Сохранить операцию очистки в виде JSON-списка целей."""
+        """Сохранить операцию очистки в виде JSON-списка целей.
+
+        Вместе с операцией пишется снапшот занятости томов (не чаще раза
+        в 6 часов): «освобождено» подтверждается замером, а тренд места
+        собирается сам.
+        """
         try:
             payload = json.dumps(results, ensure_ascii=False)
         except (TypeError, ValueError):
@@ -106,6 +124,75 @@ class HistoryManager:
             details=payload,
             op_type=op_type,
         )
+        try:
+            from disk_cleaner_app.services.disk_usage import record_snapshot
+
+            record_snapshot(self)
+        except Exception:
+            log.debug("Снапшот занятости не удался", exc_info=True)
+
+    # ── снапшоты занятости томов ───────────────────────
+
+    def add_snapshots(
+        self, items: list[dict], when: datetime.datetime | None = None
+    ) -> int:
+        """Записать снапшоты томов одним моментом. → сколько записано."""
+        moment = (when or datetime.datetime.now()).isoformat()
+        rows = [
+            (moment, str(item["volume"]), int(item["free"]), int(item["total"]))
+            for item in items
+        ]
+        if not rows:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT INTO disk_snapshots (date, volume, free_bytes, "
+                "total_bytes) VALUES (?, ?, ?, ?)",
+                rows,
+            )
+        return len(rows)
+
+    def last_snapshot_time(self) -> datetime.datetime | None:
+        """Момент самого свежего снапшота или None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT date FROM disk_snapshots ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if not row or not row[0]:
+            return None
+        try:
+            return datetime.datetime.fromisoformat(str(row[0]))
+        except ValueError:
+            return None
+
+    def usage_series(self, volume: str, limit: int = 90) -> list[dict]:
+        """Точки занятости тома по возрастанию даты.
+
+        Каждый элемент: ``date`` (ISO), ``free``, ``total`` и
+        ``timestamp`` (epoch, для регрессии).
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT date, free_bytes, total_bytes FROM disk_snapshots "
+                "WHERE volume = ? ORDER BY id DESC LIMIT ?",
+                (str(volume), int(limit)),
+            ).fetchall()
+        series: list[dict] = []
+        for date_text, free, total in reversed(rows):
+            timestamp: float | None = None
+            try:
+                timestamp = datetime.datetime.fromisoformat(
+                    str(date_text)
+                ).timestamp()
+            except ValueError:
+                pass
+            series.append({
+                "date": str(date_text),
+                "free": int(free),
+                "total": int(total),
+                "timestamp": timestamp,
+            })
+        return series
 
     # ── чтение ─────────────────────────────────────────
 

@@ -146,6 +146,7 @@ class MainWindow:
             on_clean_target=self._clean_target_from_dashboard,
             on_drive_change=self._set_dashboard_drive,
             on_deep_clean=self._go_deep_from_dashboard,
+            history=self.history,
         )
 
         self.views["clean"] = SmartCleanView(
