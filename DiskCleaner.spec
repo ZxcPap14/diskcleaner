@@ -11,7 +11,17 @@ datas = collect_data_files("customtkinter")
 hiddenimports = ["customtkinter", "squarify"]
 
 # Легаси-модули не используются приложением и не включаются в сборку.
-EXCLUDES = ["disk_cleaner_app.legacy"]
+# Тяжёлые численные пакеты приходят только через необязательный
+# `squarify.plot` и не импортируются приложением (см. build.py).
+EXCLUDES = [
+    "disk_cleaner_app.legacy",
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "PIL._avif",
+    "PIL._webp",
+]
 
 
 a = Analysis(

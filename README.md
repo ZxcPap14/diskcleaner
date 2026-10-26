@@ -111,9 +111,15 @@ python build_installer.py --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 Скрипт соберёт exe, установщик и портативный архив:
 
 - `dist\DiskCleaner.exe` — портативная версия (один файл, запускается без установки);
-- `dist\DiskCleaner-Setup-4.10.3.exe` — установщик;
-- `dist\DiskCleaner-4.10.3-portable.zip` — exe + README + лицензия;
+- `dist\DiskCleaner-Setup-4.10.4.exe` — установщик;
+- `dist\DiskCleaner-4.10.4-portable.zip` — exe + README + лицензия;
 - `dist\SHA256SUMS.txt` — контрольные суммы.
+
+Сборка весит около 15 МБ. NumPy/SciPy/pandas/matplotlib и AVIF/WebP-плагины
+Pillow в неё не попадают: приложение их не импортирует, а в граф зависимостей
+они приходят через необязательный `squarify.plot`. Список исключений —
+`EXCLUDES` в `build.py` и `DiskCleaner.spec`; тест `tests\test_build.py`
+следит, чтобы два списка не разъехались.
 
 Установщик ставит приложение в профиль пользователя
 (`%LOCALAPPDATA%\Programs\DiskCleaner Pro`), поэтому не требует прав
@@ -123,7 +129,7 @@ python build_installer.py --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 Тихая установка и удаление:
 
 ```powershell
-.\DiskCleaner-Setup-4.10.3.exe /S /D=C:\Tools\DiskCleaner
+.\DiskCleaner-Setup-4.10.4.exe /S /D=C:\Tools\DiskCleaner
 & "$env:LOCALAPPDATA\Programs\DiskCleaner Pro\Uninstall.exe" /S
 ```
 
@@ -151,7 +157,7 @@ python build_installer.py --uac-admin
 удаление) — в PowerShell:
 
 ```powershell
-.\scripts\verify_installer.ps1 -Setup .\dist\DiskCleaner-Setup-4.10.3.exe
+.\scripts\verify_installer.ps1 -Setup .\dist\DiskCleaner-Setup-4.10.4.exe
 ```
 
 Скрипт ставит приложение во временную папку, требует `frozen: true` и
@@ -192,7 +198,7 @@ x64 (на ARM64 — эмуляция x64) и отказывается работ
 - Импорт настроек не доверяет файлу: неизвестные ключи и опасные пути
   пропускаются и перечисляются в отчёте об импорте.
 
-## Известные ограничения (v4.10.3)
+## Известные ограничения (v4.10.4)
 
 - UAC запрашивается кнопкой 🛡️ либо манифестом при сборке с `--uac-admin`;
   в обычной сборке приложение стартует без повышения прав.

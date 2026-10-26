@@ -36,7 +36,19 @@ ICON_PATH = os.path.join("assets", "diskcleaner.ico")
 VERSION_FILE = os.path.join(BUILD_DIR, "version_info.txt")
 
 # Старые монолитные модули: в сборку не попадают.
-EXCLUDES = ["disk_cleaner_app.legacy"]
+# NumPy/SciPy/pandas/matplotlib попадают в граф зависимостей только через
+# необязательный `squarify.plot` (matplotlib) и весят ~25 МБ, хотя приложение
+# их не импортирует. AVIF/WebP-плагины Pillow тоже не нужны: CustomTkinter
+# рисует PNG/ICO. Без них установщик вдвое меньше.
+EXCLUDES = [
+    "disk_cleaner_app.legacy",
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "PIL._avif",
+    "PIL._webp",
+]
 
 
 def clean_old_builds() -> None:
