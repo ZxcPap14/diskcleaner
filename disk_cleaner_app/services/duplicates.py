@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from disk_cleaner_app.cleaners.base import safe_remove
+from disk_cleaner_app.cleaners.safety import is_whitelisted
 from disk_cleaner_app.services.batch_delete import delete_many
 
 ProgressCallback = Callable[[int, int, str], None]
@@ -17,6 +18,95 @@ ProgressCallback = Callable[[int, int, str], None]
 PARTIAL_CHUNK = 64 * 1024
 HASH_CHUNK = 256 * 1024
 DEFAULT_HASH = "blake2b"
+
+# Правила выбора оригинала внутри группы дубликатов.
+ORIGINAL_POLICIES = {
+    "oldest": "Самый старый",
+    "newest": "Самый новый",
+    "short_path": "Короткий путь",
+}
+_JUNK_PARTS = {"temp", "tmp", "downloads"}
+
+
+def is_junk_path(path: str | Path) -> bool:
+    """Лежит ли файл в Temp/Downloads/Tmp — такие копии удаляем первыми."""
+    try:
+        parts = Path(path).parts
+    except (OSError, ValueError):
+        return False
+    return any(part.lower() in _JUNK_PARTS for part in parts)
+
+
+def choose_original(
+    files: list[str],
+    policy: str = "oldest",
+    *,
+    junk_first: bool = True,
+    stat_fn: Callable[[str], os.stat_result] = os.stat,
+) -> str:
+    """Выбрать файл-оригинал: его не удаляем, остальные — кандидаты в корзину.
+
+    ``junk_first`` опускает копии из Temp/Downloads в конец, чтобы оригиналом
+    осталась «настоящая» копия пользователя. Неизвестный mtime никогда не
+    выигрывает у известного.
+    """
+    if not files:
+        return ""
+    if len(files) == 1:
+        return files[0]
+
+    def sort_key(path: str) -> tuple:
+        try:
+            mtime = stat_fn(path).st_mtime
+            unknown = 0
+        except OSError:
+            mtime = 0.0
+            unknown = 1
+        junk = is_junk_path(path) if junk_first else False
+        if policy == "newest":
+            moment = -mtime
+        elif policy == "short_path":
+            moment = 0.0
+        else:  # oldest — безопасный вариант по умолчанию
+            moment = mtime
+        return (junk, unknown, moment, len(str(path)), str(path).casefold())
+
+    return min(files, key=sort_key)
+
+
+def arrange_groups(
+    groups: list[dict],
+    policy: str = "oldest",
+    whitelist: list[str] | tuple[str, ...] = (),
+    *,
+    junk_first: bool = True,
+    stat_fn: Callable[[str], os.stat_result] = os.stat,
+) -> list[dict]:
+    """Переставить файлы в группах: [оригинал, защищённые, к удалению].
+
+    Пути из белого списка («никогда не удалять») остаются в группе, но
+    никогда не попадают в ``deletable``. Группы без файлов к удалению
+    сохраняются для показа с пустым ``deletable``.
+    """
+    out: list[dict] = []
+    for group in groups:
+        files = [str(f) for f in group.get("files", [])]
+        if len(files) < 2:
+            continue
+        original = choose_original(files, policy, junk_first=junk_first, stat_fn=stat_fn)
+        rest = [f for f in files if os.path.normcase(f) != os.path.normcase(original)]
+        protected = [f for f in rest if is_whitelisted(f, whitelist)]
+        protected_keys = {os.path.normcase(f) for f in protected}
+        deletable = [f for f in rest if os.path.normcase(f) not in protected_keys]
+        out.append({
+            **group,
+            "files": [original, *protected, *deletable],
+            "original": original,
+            "protected": protected,
+            "deletable": deletable,
+            "wasted": int(group.get("size", 0)) * len(deletable),
+        })
+    return out
 
 
 class DuplicateFinder:

@@ -1,21 +1,35 @@
 """🔍 Duplicates — поиск дублирующихся файлов."""
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import format_bytes
-from disk_cleaner_app.services.duplicates import DuplicateFinder
-from disk_cleaner_app.ui.assets import FONT_LABEL, FONT_MONO, SPACE_2, SPACE_3
+from disk_cleaner_app.services.duplicates import (
+    ORIGINAL_POLICIES,
+    DuplicateFinder,
+    arrange_groups,
+)
+from disk_cleaner_app.ui.assets import (
+    FONT_CAPTION,
+    FONT_LABEL,
+    FONT_MONO,
+    SPACE_2,
+    SPACE_3,
+)
 from disk_cleaner_app.ui.components.md3 import (
     MDButton,
     MDCard,
+    MDCheckbox,
     MDEntry,
     MDIconButton,
     MDLabel,
+    MDOptionMenu,
     MDTextbox,
     PageHeader,
     SectionTitle,
@@ -33,6 +47,9 @@ class DuplicatesView(ctk.CTkFrame):
         self._on_log = on_log
         self._finder = DuplicateFinder()
         self._dups: list[dict] = []
+        self._raw_dups: list[dict] = []
+        self._last_mode = "fast"
+        self._last_cancelled = False
         self._is_searching = False
         self._cancel = threading.Event()
         self._ui = UiDispatcher(self)
@@ -72,6 +89,36 @@ class DuplicatesView(ctk.CTkFrame):
             path_row, self._theme, "…", self._browse, kind="tonal", size=36,
             font=("Segoe UI", 14, "bold"),
         ).pack(side="left")
+
+        rules = ctk.CTkFrame(search_card, fg_color="transparent")
+        rules.pack(fill="x", padx=14, pady=(0, 8))
+
+        MDLabel(
+            rules, self._theme, "Оригинал:", role="muted", font=FONT_LABEL,
+        ).pack(side="left", padx=(2, 6))
+
+        self.policy_menu = MDOptionMenu(
+            rules, self._theme,
+            values=list(ORIGINAL_POLICIES.values()),
+            width=148, height=30,
+            command=lambda _value: self._render_results(),
+        )
+        self.policy_menu.set(ORIGINAL_POLICIES["oldest"])
+        self.policy_menu.pack(side="left", padx=(0, 12))
+
+        self.junk_var = ctk.BooleanVar(value=True)
+        self.junk_check = MDCheckbox(
+            rules, self._theme, "Temp/Downloads — первыми",
+            variable=self.junk_var, command=self._render_results,
+            bg_color=self._theme.colors.SURFACE_LOW, font=FONT_CAPTION,
+        )
+        self.junk_check.pack(side="left")
+        self.junk_check.select()
+
+        self.whitelist_label = MDLabel(
+            rules, self._theme, "", role="muted", font=FONT_CAPTION,
+        )
+        self.whitelist_label.pack(side="right", padx=(8, 2))
 
         actions = ctk.CTkFrame(search_card, fg_color="transparent")
         actions.pack(fill="x", padx=14, pady=(0, 12))
@@ -144,6 +191,7 @@ class DuplicatesView(ctk.CTkFrame):
             return
         self._is_searching = True
         self._dups = []
+        self._raw_dups = []
         self._cancel.clear()
         self.fast_btn.configure(state="disabled")
         self.exact_btn.configure(state="disabled")
@@ -168,28 +216,11 @@ class DuplicatesView(ctk.CTkFrame):
                     progress=self._search_progress,
                 )
             except Exception as e:
-                self._ui.post(self._show_result, f"❌ Ошибка поиска: {e}\n", 0, [])
+                self._ui.post(self._show_error, str(e))
                 return
-            cancelled = self._cancel.is_set()
-            extra = sum(g["count"] - 1 for g in groups)
-            text = (
-                f"{'⚡ Быстрый' if mode == 'fast' else '🎯 BLAKE2b'}: "
-                f"{len(groups)} групп · {extra} лишних копий · "
-                f"зря занято {format_bytes(sum(g['wasted'] for g in groups))}\n"
+            self._ui.post(
+                self._show_result, groups, mode, self._cancel.is_set()
             )
-            if cancelled:
-                text = "⏹ Поиск остановлен.\n" + text
-            text += "═" * 50 + "\n"
-            for g in groups[:50]:
-                text += (
-                    f"📄 {g['name']}  ×{g['count']}  "
-                    f"{format_bytes(g['size'])} каждый · зря {format_bytes(g['wasted'])}\n"
-                )
-                for i, path in enumerate(g["files"]):
-                    mark = "оригинал" if i == 0 else f"копия {i}"
-                    text += f"  {i + 1}: [{mark}] {path}\n"
-                text += "\n"
-            self._ui.post(self._show_result, text, len(groups), groups)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -208,39 +239,161 @@ class DuplicatesView(ctk.CTkFrame):
         self.cancel_btn.configure(state="disabled")
         self.dup_status.configure(text="⏹ Остановка...")
 
-    def _show_result(self, text: str, n: int, dups: list[dict]) -> None:
+    def _show_error(self, message: str) -> None:
         self._is_searching = False
-        self._dups = dups
+        self._raw_dups = []
+        self._dups = []
+        self.fast_btn.configure(state="normal")
+        self.exact_btn.configure(state="normal")
+        self.cancel_btn.configure(state="disabled")
+        self.delete_btn.configure(state="disabled")
+        self.dup_status.configure(text="❌ Ошибка")
+        self._set_text(f"❌ Ошибка поиска: {message}\n")
+
+    def _set_text(self, text: str) -> None:
         self.dup_text.configure(state="normal")
         self.dup_text.delete("1.0", "end")
         self.dup_text.insert("1.0", text)
         self.dup_text.configure(state="disabled")
+
+    def _whitelist(self) -> list[str]:
+        """Белый список из настроек: такие пути не попадают в корзину."""
+        try:
+            raw = ConfigManager().get("whitelist", [])
+        except Exception:
+            return []
+        if isinstance(raw, list):
+            return [str(w) for w in raw if str(w).strip()]
+        return []
+
+    def _policy_key(self) -> str:
+        label = self.policy_menu.get()
+        for key, title in ORIGINAL_POLICIES.items():
+            if title == label:
+                return key
+        return "oldest"
+
+    def _show_result(
+        self, groups: list[dict], mode: str, cancelled: bool,
+    ) -> None:
+        self._is_searching = False
+        self._raw_dups = groups
+        self._last_mode = mode
+        self._last_cancelled = cancelled
         self.fast_btn.configure(state="normal")
         self.exact_btn.configure(state="normal")
         self.cancel_btn.configure(state="disabled")
-        self.delete_btn.configure(state="normal" if dups else "disabled")
-        self.dup_status.configure(text=f"✅ {n}")
+        self._render_results()
+
+    def _render_results(self) -> None:
+        """Пересчитать оригиналы и предпросмотр без повторного поиска."""
+        if not self._raw_dups:
+            self._dups = []
+            self.delete_btn.configure(state="disabled")
+            self.dup_status.configure(text="✅ 0 групп")
+            self._set_text(
+                "Дубликатов не найдено. Попробуйте другую папку, "
+                "меньший порог или точный режим.\n"
+            )
+            return
+        whitelist = self._whitelist()
+        groups = arrange_groups(
+            self._raw_dups,
+            self._policy_key(),
+            whitelist,
+            junk_first=self.junk_var.get(),
+        )
+        self._dups = groups
+        targets = sum(len(g.get("deletable", [])) for g in groups)
+        protected = sum(len(g.get("protected", [])) for g in groups)
+        wasted = sum(int(g.get("wasted", 0)) for g in groups)
+
+        mode_label = "⚡ Быстрый" if self._last_mode == "fast" else "🎯 BLAKE2b"
+        text = (
+            f"{mode_label}: {len(groups)} групп · {targets} к удалению · "
+            f"зря занято {format_bytes(wasted)}\n"
+        )
+        if protected:
+            text = (
+                f"{text}🔒 Защищено белым списком: {protected} "
+                "(не удаляются)\n"
+            )
+        if self._last_cancelled:
+            text = "⏹ Поиск остановлен.\n" + text
+        text += "═" * 50 + "\n"
+
+        for group in groups[:50]:
+            text += (
+                f"📄 {group['name']}  ×{group['count']}  "
+                f"{format_bytes(group['size'])} каждый · "
+                f"зря {format_bytes(group['wasted'])}\n"
+            )
+            protected_keys = {
+                os.path.normcase(p) for p in group.get("protected", [])
+            }
+            copy_no = 0
+            for i, path in enumerate(group["files"]):
+                if i == 0:
+                    mark = "оригинал"
+                elif os.path.normcase(path) in protected_keys:
+                    mark = "🔒 белый список"
+                else:
+                    copy_no += 1
+                    mark = f"копия {copy_no}"
+                text += f"  {i + 1}: [{mark}] {path}\n"
+            text += "\n"
+
+        if protected:
+            text += "🔒 — путь из белого списка, никогда не удаляется.\n"
+        if not targets:
+            text += "\nУдалять нечего: все копии защищены белым списком.\n"
+
+        self._set_text(text)
+        self.delete_btn.configure(state="normal" if targets else "disabled")
+        self.dup_status.configure(
+            text=f"✅ {len(groups)} групп · к удалению {targets}"
+        )
+        self.whitelist_label.configure(
+            text=f"🔒 белый список: {len(whitelist)}" if whitelist else ""
+        )
 
     def _delete_duplicates(self) -> None:
         if self._is_searching or not self._dups:
             return
 
         pairs = []
+        seen: set[str] = set()
+        protected = 0
         for group in self._dups:
             files = group.get("files") or []
             if len(files) < 2:
                 continue
-            for extra in files[1:]:
-                pairs.append({"file1": files[0], "file2": extra})
+            original = group.get("original") or files[0]
+            protected += len(group.get("protected", []))
+            for extra in group.get("deletable", []):
+                key = os.path.normcase(extra)
+                if key in seen:
+                    continue
+                seen.add(key)
+                pairs.append({"file1": original, "file2": extra})
 
-        unique_targets = {p["file2"] for p in pairs}
-        total_size = sum(int(g.get("wasted", 0)) for g in self._dups)
+        if not pairs:
+            return
+        total_size = sum(
+            int(g.get("size", 0)) * len(g.get("deletable", []))
+            for g in self._dups
+        )
 
+        note = (
+            f"\n\n🔒 Защищено белым списком: {protected} — не удаляются."
+            if protected else ""
+        )
         if not messagebox.askyesno(
             "Удаление дубликатов",
-            f"Переместить в корзину {len(unique_targets)} файлов "
+            f"Переместить в корзину {len(pairs)} файлов "
             f"({format_bytes(total_size)})?\n\n"
-            "В каждой группе удаляются все копии, кроме первой (оригинала).",
+            "Оригинал в каждой группе остаётся на месте."
+            + note,
         ):
             return
 
@@ -262,6 +415,7 @@ class DuplicatesView(ctk.CTkFrame):
         self.exact_btn.configure(state="normal")
         self.delete_btn.configure(state="disabled")
         self._dups = []
+        self._raw_dups = []
         self.dup_status.configure(
             text=f"🗑️ {result['deleted']} · ошибок: {result['failed']}"
         )
@@ -285,6 +439,7 @@ class DuplicatesView(ctk.CTkFrame):
         self.dup_text.configure(
             fg_color=c.SURFACE_LOWEST, text_color=c.ON_SURFACE_VARIANT,
         )
+        self.junk_check.configure(bg_color=c.SURFACE_LOW)
 
     def destroy(self) -> None:
         try:

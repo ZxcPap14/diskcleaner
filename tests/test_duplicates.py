@@ -4,9 +4,15 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 from disk_cleaner_app.services import duplicates as duplicates_module
-from disk_cleaner_app.services.duplicates import DuplicateFinder
+from disk_cleaner_app.services.duplicates import (
+    DuplicateFinder,
+    arrange_groups,
+    choose_original,
+    is_junk_path,
+)
 
 
 def _pair(original: Path, duplicate: Path) -> dict:
@@ -268,3 +274,104 @@ def test_pairs_from_groups_match_legacy_format(tmp_path: Path) -> None:
     assert len(pairs) == 2
     assert all(p["file1"] == groups[0]["files"][0] for p in pairs)
     assert {p["file2"] for p in pairs} == set(groups[0]["files"][1:])
+
+
+# ── авто-выбор оригинала ─────────────────────────────────
+
+
+def _stat_map(mtimes: dict[str, float]):
+    def fake(path: str) -> SimpleNamespace:
+        if path not in mtimes:
+            raise FileNotFoundError(path)
+        return SimpleNamespace(st_mtime=mtimes[path])
+
+    return fake
+
+
+def _group(files: list[str], size: int = 100) -> dict:
+    return {
+        "name": "same.bin",
+        "size": size,
+        "files": list(files),
+        "count": len(files),
+        "wasted": size * (len(files) - 1),
+    }
+
+
+def test_is_junk_path_detects_temp_and_downloads() -> None:
+    assert is_junk_path(r"C:\Users\me\AppData\Local\Temp\a.bin")
+    assert is_junk_path(r"D:\Downloads\a.bin")
+    assert not is_junk_path(r"D:\Photos\a.bin")
+
+
+def test_choose_original_oldest_prefers_non_junk() -> None:
+    files = [
+        r"C:\Users\me\Downloads\a.bin",
+        r"C:\Users\me\Docs\a.bin",
+        r"C:\Users\me\Photos\a.bin",
+    ]
+    stat = _stat_map({
+        files[0]: 100.0,
+        files[1]: 200.0,
+        files[2]: 300.0,
+    })
+
+    assert choose_original(files, "oldest", stat_fn=stat) == files[1]
+
+
+def test_choose_original_newest_and_short_path() -> None:
+    files = [r"C:\a\long\path\a.bin", r"C:\b\a.bin"]
+    stat = _stat_map({files[0]: 100.0, files[1]: 200.0})
+
+    assert choose_original(files, "newest", stat_fn=stat) == files[1]
+    assert choose_original(files, "short_path", stat_fn=stat) == files[1]
+
+
+def test_choose_original_never_prefers_unknown_mtime() -> None:
+    files = [r"C:\unknown\a.bin", r"C:\known\a.bin"]
+    stat = _stat_map({files[1]: 200.0})
+
+    assert choose_original(files, "oldest", stat_fn=stat) == files[1]
+
+
+def test_arrange_groups_protects_whitelist(tmp_path: Path) -> None:
+    keep_dir = tmp_path / "keep"
+    keep_dir.mkdir()
+    old = tmp_path / "old.bin"
+    kept = keep_dir / "kept.bin"
+    extra = tmp_path / "extra.bin"
+    for path in (old, kept, extra):
+        path.write_bytes(b"x")
+    stat = _stat_map({
+        str(old): 100.0,
+        str(kept): 200.0,
+        str(extra): 300.0,
+    })
+
+    [group] = arrange_groups(
+        [_group([str(extra), str(kept), str(old)])],
+        whitelist=[str(keep_dir)],
+        stat_fn=stat,
+    )
+
+    assert group["original"] == str(old)
+    assert group["protected"] == [str(kept)]
+    assert group["deletable"] == [str(extra)]
+    assert group["wasted"] == 100
+
+
+def test_arrange_groups_keeps_group_when_all_protected(tmp_path: Path) -> None:
+    first = tmp_path / "a.bin"
+    second = tmp_path / "b.bin"
+    for path in (first, second):
+        path.write_bytes(b"x")
+
+    [group] = arrange_groups(
+        [_group([str(first), str(second)])],
+        whitelist=[str(tmp_path)],
+        stat_fn=_stat_map({str(first): 100.0, str(second): 200.0}),
+    )
+
+    assert group["deletable"] == []
+    assert group["wasted"] == 0
+    assert len(group["protected"]) == 1
