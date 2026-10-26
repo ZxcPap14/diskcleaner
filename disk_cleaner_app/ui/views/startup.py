@@ -7,6 +7,12 @@ from tkinter import messagebox, ttk
 import customtkinter as ctk
 
 from disk_cleaner_app.services.startup import StartupManager
+from disk_cleaner_app.services.startup_impact import (
+    attach_impacts,
+    read_startup_impact,
+    record_index,
+    status_hint,
+)
 from disk_cleaner_app.services.startup_services import (
     ScheduledTasksManager,
     ServicesManager,
@@ -117,20 +123,26 @@ class StartupView(ctk.CTkFrame):
             title_row, self._theme, "Записи автозагрузки",
             "Отключение сохраняет запись и позволяет вернуть её позже",
         ).pack(side="left")
+        self.impact_hint = MDLabel(
+            title_row, self._theme, "", role="muted", font=FONT_LABEL,
+        )
+        self.impact_hint.pack(side="right")
 
         style_treeview("Startup", self._theme, row_height=32)
-        cols = ("name", "status", "command", "source")
+        cols = ("name", "status", "impact", "command", "source")
         self.tree = ttk.Treeview(
             table_card, columns=cols, show="headings",
             selectmode="browse", height=12, style="Startup.Treeview",
         )
         self.tree.heading("name", text="Имя", anchor="w")
         self.tree.heading("status", text="Статус", anchor="center")
+        self.tree.heading("impact", text="Влияние", anchor="center")
         self.tree.heading("command", text="Команда", anchor="w")
         self.tree.heading("source", text="Источник", anchor="w")
-        self.tree.column("name", width=200, minwidth=150)
+        self.tree.column("name", width=190, minwidth=140)
         self.tree.column("status", width=90, minwidth=76, anchor="center", stretch=False)
-        self.tree.column("command", width=420, minwidth=220)
+        self.tree.column("impact", width=124, minwidth=104, anchor="center", stretch=False)
+        self.tree.column("command", width=360, minwidth=200)
         self.tree.column("source", width=110, minwidth=90)
 
         self._table_scroll = ctk.CTkScrollbar(
@@ -153,9 +165,10 @@ class StartupView(ctk.CTkFrame):
 
     def refresh(self) -> None:
         self.info_label.configure(text="Загрузка…")
+        mode = self._mode
 
         def worker():
-            if self._mode == "services":
+            if mode == "services":
                 items = self._services.get_all()
                 if not items and self._services.last_error:
                     self._ui.post(
@@ -163,7 +176,7 @@ class StartupView(ctk.CTkFrame):
                         text=f"⚠️ {self._services.last_error}",
                     )
                     items = []
-            elif self._mode == "tasks":
+            elif mode == "tasks":
                 items = self._tasks.get_all()
                 if not items and self._tasks.last_error:
                     self._ui.post(
@@ -172,13 +185,22 @@ class StartupView(ctk.CTkFrame):
                     )
             else:
                 items = self._manager.get_all()
-            self._ui.post(self._display, items)
+            impact = None if mode == "tasks" else read_startup_impact()
+            self._ui.post(self._display, items, impact)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _display(self, items: list[dict]) -> None:
+    def _display(self, items: list[dict], impact: dict | None = None) -> None:
         self._items = items
         self._items_by_id = {str(item.get("id")): item for item in items}
+        if impact is not None:
+            attach_impacts(items, record_index(impact.get("records", [])))
+        if self._mode == "tasks":
+            self.impact_hint.configure(
+                text="влияние: не измеряется для заданий планировщика"
+            )
+        elif impact is not None:
+            self.impact_hint.configure(text=status_hint(str(impact.get("status") or "error")))
         for i in self.tree.get_children():
             self.tree.delete(i)
         for item in items:
@@ -195,6 +217,7 @@ class StartupView(ctk.CTkFrame):
             self.tree.insert("", "end", iid=item_id, values=(
                 item.get("name", "?"),
                 status,
+                item.get("impact_label", "—"),
                 str(item.get("command", ""))[:80],
                 item.get("source", "?"),
             ), tags=("enabled" if enabled else "disabled",))
