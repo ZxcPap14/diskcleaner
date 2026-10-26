@@ -224,3 +224,200 @@ def test_size_key_prefers_real_size() -> None:
 
     assert UninstallerView._size_key({"real_size": 10, "size_kb": 1}) == 10
     assert UninstallerView._size_key({"size_kb": 1}) == 1024
+
+
+# ── диски, портативные программы ────────────────────────
+
+
+def test_drive_of_extracts_drive_letter() -> None:
+    assert AppUninstaller._drive_of(r"C:\Program Files\App") == "C:"
+    assert AppUninstaller._drive_of(r'd="D:\Apps"') == ""
+    assert AppUninstaller._drive_of(r'"E:\Tools\App"') == "E:"
+    assert AppUninstaller._drive_of("") == ""
+    assert AppUninstaller._drive_of(r"relative\path") == ""
+
+
+def test_dedupe_keeps_same_name_on_different_drives() -> None:
+    apps = [
+        {"name": "App", "install_location": r"C:\Apps\App"},
+        {"name": "App", "install_location": r"D:\Apps\App"},
+        {"name": "App", "install_location": r"C:\Apps\App"},  # дубликат реестра
+        {"name": "Solo", "install_location": ""},
+        {"name": "Solo", "install_location": ""},
+    ]
+    result = AppUninstaller._dedupe_apps(apps)
+
+    names = [(a["name"], a["install_location"]) for a in result]
+    assert names == [
+        ("App", r"C:\Apps\App"),
+        ("App", r"D:\Apps\App"),
+        ("Solo", ""),
+    ]
+
+
+def test_get_portable_finds_dirs_with_exe(tmp_path: Path) -> None:
+    portable_app = tmp_path / "MyPortable"
+    portable_app.mkdir()
+    (portable_app / "app.exe").write_bytes(b"MZ")
+
+    nested = tmp_path / "Bundled"
+    (nested / "bin").mkdir(parents=True)
+    (nested / "bin" / "tool.exe").write_bytes(b"MZ")
+
+    empty = tmp_path / "NoProgram"
+    empty.mkdir()
+    (empty / "readme.txt").write_text("hello")
+
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    found = uninstaller.get_portable(drives=[str(tmp_path)], known_locations=[])
+
+    names = {item["name"] for item in found}
+    assert names == {"MyPortable", "Bundled"}
+    assert all(item["portable"] for item in found)
+    assert all(item["install_location"] for item in found)
+
+
+def test_get_portable_skips_service_dirs_and_known(tmp_path: Path) -> None:
+    app_dir = tmp_path / "Registered"
+    app_dir.mkdir()
+    (app_dir / "app.exe").write_bytes(b"MZ")
+
+    junk = tmp_path / "$RECYCLE.BIN"
+    junk.mkdir()
+
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    found = uninstaller.get_portable(
+        drives=[str(tmp_path)], known_locations=[str(app_dir)]
+    )
+
+    assert found == []
+
+
+def test_inside_known_checks_prefix() -> None:
+    known = {r"c:\apps\tool"}
+    assert AppUninstaller._inside_known(r"C:\apps\tool\app.exe", known)
+    assert not AppUninstaller._inside_known(r"C:\apps\tools\app.exe", known)
+    assert not AppUninstaller._inside_known(r"C:\apps\toolkit.exe", known)
+
+
+def test_portable_install_date_from_folder_mtime(tmp_path: Path) -> None:
+    app_dir = tmp_path / "MyPortable"
+    app_dir.mkdir()
+    (app_dir / "app.exe").write_bytes(b"MZ")
+
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    found = uninstaller.get_portable(drives=[str(tmp_path)], known_locations=[])
+
+    assert len(found) == 1
+    date = found[0]["install_date"]
+    assert len(date) == 8 and date.isdigit()
+
+
+def test_remove_portable_sends_folder_to_recycle(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import disk_cleaner_app.services.uninstaller as module
+
+    app_dir = tmp_path / "MyPortable"
+    app_dir.mkdir()
+    (app_dir / "app.exe").write_bytes(b"MZ")
+
+    calls: list[tuple[list[str], bool]] = []
+
+    def fake_delete_many(paths, to_recycle=True, use_ifile=True):
+        calls.append((list(paths), to_recycle))
+        return {"deleted": list(paths), "failed": []}
+
+    monkeypatch.setattr(module, "delete_many", fake_delete_many)
+
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    logs = uninstaller.remove_portable(
+        {"name": "MyPortable", "install_location": str(app_dir)}
+    )
+
+    assert calls == [([str(app_dir)], True)]
+    assert any("корзину" in line for line in logs)
+
+
+def test_remove_portable_refuses_unsafe_paths(tmp_path: Path, monkeypatch) -> None:
+    import disk_cleaner_app.services.uninstaller as module
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        module, "delete_many",
+        lambda paths, to_recycle=True, use_ifile=True: calls.extend(paths)
+        or {"deleted": [], "failed": []},
+    )
+
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    logs = uninstaller.remove_portable({"install_location": str(Path.home())})
+
+    assert calls == []
+    assert any("небезопасный путь" in line for line in logs)
+
+
+def test_safe_remove_target_refuses_roots_and_windows(tmp_path: Path) -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+
+    assert uninstaller._is_safe_remove_target(tmp_path) is True
+    assert uninstaller._is_safe_remove_target(tmp_path / "missing") is False
+
+    root = Path(tmp_path.anchor)  # корень тома
+    assert uninstaller._is_safe_remove_target(root) is False
+
+    windows_like = tmp_path / "Windows" / "Tools"
+    windows_like.mkdir(parents=True)
+    assert uninstaller._is_safe_remove_target(windows_like) is False
+
+
+def test_safe_remove_target_blocks_forbidden_components(tmp_path: Path) -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    svi = tmp_path / "System Volume Information"  # name check via component
+    svi.mkdir()
+
+    assert uninstaller._is_safe_remove_target(svi) is False
+
+
+# ── диаграмма и строки списка ───────────────────────────
+
+
+def test_chart_data_top_and_rest() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    apps = [
+        {"name": f"App{i}", "real_size": 1000 - i} for i in range(15)
+    ]
+    data = UninstallerView._chart_data(apps, top=10)
+
+    assert len(data) == 11
+    assert data[0] == ("App0", 1000)
+    assert data[-1][0] == "Остальные: 5"
+    assert data[-1][1] == sum(1000 - i for i in range(10, 15))
+
+
+def test_chart_data_skips_zero_sizes() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    apps = [{"name": "Big", "real_size": 500}, {"name": "Unknown", "real_size": None}]
+    data = UninstallerView._chart_data(apps)
+
+    assert data == [("Big", 500)]
+
+
+def test_row_values_marks_portable_and_disk() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    installed = UninstallerView._row_values(
+        {"name": "App", "version": "1.0", "drive": "C:", "real_size": 2048,
+         "install_date": "20260102"}
+    )
+    assert installed == ("App", "C:", "1.0", "2.0 КБ", "2026-01-02")
+
+    portable = UninstallerView._row_values(
+        {"name": "Tool", "portable": True, "drive": "D:", "real_size": None}
+    )
+    assert portable[0] == "📦 Tool"
+    assert portable[1] == "D:"
+
+    unknown = UninstallerView._row_values({"name": "X"})
+    assert unknown[1] == "—"

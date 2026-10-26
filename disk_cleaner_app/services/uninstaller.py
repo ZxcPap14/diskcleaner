@@ -6,7 +6,10 @@
 """
 from __future__ import annotations
 
+import ctypes
+import datetime
 import os
+import string
 import subprocess
 import winreg
 from collections.abc import Callable
@@ -14,6 +17,37 @@ from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import get_dir_size
 from disk_cleaner_app.services.batch_delete import delete_many
+
+_DRIVE_FIXED = 3
+# FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM — служебные каталоги тома.
+_ATTR_SKIP = 0x6
+_PORTABLE_SKIP_NAMES = {
+    "$recycle.bin",
+    "system volume information",
+    "windows",
+    "program files",
+    "program files (x86)",
+    "programdata",
+    "users",
+    "perflogs",
+    "recovery",
+    "documents and settings",
+}
+_FORBIDDEN_COMPONENTS = {
+    "$recycle.bin",
+    "system volume information",
+    "windows",
+}
+
+
+def _drive_type(root: str) -> int:
+    """Тип диска через GetDriveTypeW (3 — фиксированный)."""
+    try:
+        return int(
+            ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root))
+        )
+    except Exception:
+        return 0
 
 
 class AppUninstaller:
@@ -54,9 +88,12 @@ class AppUninstaller:
     # ── установленные программы ─────────────────────────
 
     def get_installed(self) -> list[dict]:
-        """Получить список установленных программ."""
+        """Получить список установленных программ (все диски).
+
+        Записи с одинаковым именем, но разными путями установки
+        (например, одна программа на C: и на D:) не склеиваются.
+        """
         apps: list[dict] = []
-        seen: set[str] = set()
 
         for hkey, key_path in self.REG_KEYS:
             try:
@@ -67,16 +104,33 @@ class AppUninstaller:
                             subkey_name = winreg.EnumKey(key, i)
                             i += 1
                             app = self._read_app(hkey, key_path, subkey_name)
-                            if app and app["name"] and app["name"] not in seen:
-                                seen.add(app["name"])
+                            if app and app["name"]:
                                 apps.append(app)
                         except OSError:
                             break
             except OSError:
                 continue
 
+        apps = self._dedupe_apps(apps)
         apps.sort(key=lambda x: x["name"].lower())
         return apps
+
+    @staticmethod
+    def _dedupe_apps(apps: list[dict]) -> list[dict]:
+        """Убрать дубликаты реестра: имя + путь установки."""
+        seen: set[str] = set()
+        result: list[dict] = []
+        for app in apps:
+            name = str(app.get("name", "")).casefold()
+            location = os.path.normcase(
+                str(app.get("install_location", "") or "").strip().strip('"')
+            )
+            key = f"{name}|{location}" if location else name
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(app)
+        return result
 
     def _read_app(self, hkey, key_path: str, subkey: str) -> dict | None:
         """Прочитать информацию о программе из подраздела реестра."""
@@ -108,11 +162,187 @@ class AppUninstaller:
                     "uninstall_string": uninstall,
                     "quiet_uninstall": quiet,
                     "install_location": install_loc,
+                    "drive": self._drive_of(install_loc),
                     "registry_key": f"{key_path}\\{subkey}",
                     "uninstall_key": subkey,
                 }
         except OSError:
             return None
+
+    @staticmethod
+    def _drive_of(install_location: str) -> str:
+        """Буква диска из пути установки («C:») или пустая строка."""
+        raw = str(install_location or "").strip().strip('"')
+        if not raw:
+            return ""
+        drive = os.path.splitdrive(raw)[0]
+        return drive.upper() if len(drive) == 2 and drive.endswith(":") else ""
+
+    # ── диски и портативные программы ────────────────────
+
+    def get_drives(self) -> list[str]:
+        """Фиксированные диски в виде ['C:', 'D:']."""
+        drives: list[str] = []
+        for letter in string.ascii_uppercase:
+            root = f"{letter}:\\"
+            try:
+                if not Path(root).exists():
+                    continue
+            except OSError:
+                continue
+            if _drive_type(root) == _DRIVE_FIXED:
+                drives.append(f"{letter}:")
+        return drives
+
+    def get_portable(
+        self,
+        drives: list[str] | None = None,
+        known_locations: list[str] | None = None,
+        max_results: int = 300,
+    ) -> list[dict]:
+        """Найти портативные программы: каталоги верхнего уровня с .exe,
+        у которых нет своей записи в реестре.
+
+        Служебные и скрытые каталоги, а также каталоги, полностью покрытые
+        зарегистрированными путями установки, пропускаются. Ничего не
+        удаляет и не запускает.
+        """
+        if drives is None:
+            drives = self.get_drives()
+        known = {
+            os.path.normcase(str(loc).strip().strip('"').rstrip("\\"))
+            for loc in (known_locations or [])
+            if str(loc).strip().strip('"')
+        }
+
+        portable: list[dict] = []
+        for drive in drives:
+            if len(portable) >= max_results:
+                break
+            root = drive if str(drive).endswith("\\") else f"{drive}\\"
+            try:
+                entries = sorted(
+                    (e for e in os.scandir(root) if e.is_dir()),
+                    key=lambda e: e.name.casefold(),
+                )
+            except OSError:
+                continue
+            for entry in entries:
+                if len(portable) >= max_results:
+                    break
+                if self._skip_portable_dir(entry):
+                    continue
+                location = entry.path
+                if os.path.normcase(location) in known:
+                    continue
+                exes = self._dir_exes(Path(location))
+                if not exes:
+                    continue
+                if all(self._inside_known(exe, known) for exe in exes):
+                    continue
+                portable.append({
+                    "name": entry.name,
+                    "version": "",
+                    "publisher": "",
+                    "install_date": self._date_of_mtime(entry),
+                    "size_kb": 0,
+                    "uninstall_string": "",
+                    "quiet_uninstall": "",
+                    "install_location": location,
+                    "drive": drive.upper()[:2],
+                    "registry_key": "",
+                    "uninstall_key": "",
+                    "portable": True,
+                })
+        return portable
+
+    @staticmethod
+    def _skip_portable_dir(entry: os.DirEntry) -> bool:
+        """Скрытые, системные и заведомо не-программные каталоги."""
+        try:
+            attrs = entry.stat().st_file_attributes
+        except (OSError, AttributeError):
+            return True
+        if attrs & _ATTR_SKIP:
+            return True
+        return entry.name.casefold() in _PORTABLE_SKIP_NAMES
+
+    @staticmethod
+    def _dir_exes(path: Path, limit: int = 3) -> list[str]:
+        """До ``limit`` .exe в каталоге; иначе — на один уровень ниже."""
+        found: list[str] = []
+        try:
+            for entry in os.scandir(path):
+                if entry.is_file() and entry.name.casefold().endswith(".exe"):
+                    found.append(entry.path)
+                    if len(found) >= limit:
+                        return found
+        except OSError:
+            return found
+        try:
+            for entry in os.scandir(path):
+                if not entry.is_dir():
+                    continue
+                try:
+                    for nested in os.scandir(entry.path):
+                        if nested.is_file() and nested.name.casefold().endswith(".exe"):
+                            found.append(nested.path)
+                            if len(found) >= limit:
+                                return found
+                except OSError:
+                    continue
+        except OSError:
+            pass
+        return found
+
+    @staticmethod
+    def _inside_known(exe: str, known: set[str]) -> bool:
+        """Путь .exe лежит внутри зарегистрированного пути установки."""
+        normalized = os.path.normcase(str(exe))
+        for loc in known:
+            if normalized.startswith(loc + os.sep) or normalized == loc:
+                return True
+        return False
+
+    @staticmethod
+    def _date_of_mtime(entry: os.DirEntry) -> str:
+        """Дата каталога в формате реестра ГГГГММДД или пустая строка."""
+        try:
+            mtime = entry.stat().st_mtime
+        except OSError:
+            return ""
+        try:
+            return datetime.date.fromtimestamp(mtime).strftime("%Y%m%d")
+        except (OSError, OverflowError, ValueError):
+            return ""
+
+    def remove_portable(self, app: dict) -> list[str]:
+        """Убрать папку портативной программы в корзину (обратимо)."""
+        raw = str(app.get("install_location", "") or "").strip().strip('"')
+        path = Path(raw) if raw else None
+        if path is None or not self._is_safe_remove_target(path):
+            return [f"⚠️  Отказ: небезопасный путь «{raw or '?'}» — папка не удалена."]
+        batch = delete_many([str(path)], to_recycle=True)
+        deleted = {os.path.normcase(str(p)) for p in batch["deleted"]}
+        if os.path.normcase(str(path)) in deleted:
+            return [f"🗑️  Папка перемещена в корзину: {path}"]
+        return [f"❌ Не удалось удалить: {path}"]
+
+    @classmethod
+    def _is_safe_remove_target(cls, path: Path) -> bool:
+        """Папку портативной программы можно убрать только целиком и неслужебную."""
+        try:
+            path = path.expanduser().absolute()
+        except (OSError, ValueError):
+            return False
+        if not path.is_dir() or path.parent == path:
+            return False
+        if not cls._is_safe_target(path):
+            return False
+        for component in path.parts[1:]:
+            if component.casefold() in _FORBIDDEN_COMPONENTS:
+                return False
+        return True
 
     def _reg_get(self, key, value: str, default: str = "") -> str:
         """Безопасно получить значение из реестра."""
