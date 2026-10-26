@@ -1,6 +1,6 @@
 # План разработки DiskCleaner Pro
 
-Обновлён: 27.10.2026 · текущая версия 4.12.0
+Обновлён: 27.10.2026 · текущая версия 4.13.0
 
 Порядок — по отношению «польза / риск / время». Каждый пункт считается
 сделанным только после тестов, `ruff`, `mypy` и проверки на живом рендере
@@ -274,6 +274,39 @@ NumPy приходит в граф только через необязател�
 Итог: `base.safe_rm_contents_aged`/`newest_mtime`, проверка содержимого
 в `planner` и `orphans`, пакетная корзина слоя D, `_long_form` в
 `safety.py`, covered-корни из `affected_paths`, TTL-кэш docker.
+
+---
+
+## 4.13.0 — «Догнать CCleaner по кэшам» ✅ сделано (27.10.2026)
+
+Задача: закрыть главные категорийные разрывы очистки, найденные в
+сравнении с CCleaner/Wise. Все цели — по готовым шаблонам, автоматически
+попадают в covered-корни auto-discover (механизм 4.12.0).
+
+- [x] **UWP/Store** — новый `cleaners/uwp.py`: `AC\INetCache`, `AC\Temp`
+      и `TempState` всех пакетов `%LocalAppData%\Packages`. `LocalState`
+      и `LocalCache` сознательно не трогаются — там настройки и вход.
+      Цель включена в реестр и в sync-тест covered-корней.
+- [x] **Приложения** — Spotify (🟡 слой C: внутри может быть офлайн-музыка,
+      честно в `loss`), новые Teams (только веб-кэши EBWebView, Cookies
+      не трогаются), Discord PTB/Canary, qBittorrent (fastresume цел),
+      Adobe Camera Raw.
+- [x] **Dev-инструменты** — Go build cache и module cache, pnpm store
+      (существующие node_modules не ломаются — hardlinks), Deno, Poetry,
+      pipx, Cypress, Puppeteer, NuGet http-cache и глобальный packages
+      (🟡 слой C), `cargo\registry\src` + `git\db`, `.gradle\caches`.
+- [x] **Редакторы** — VS Code расширен (Code Cache, Service Worker,
+      CachedExtensionVSIXs, logs, CrashReports); добавлены VSCodium и
+      Cursor (общий базовый класс `_EditorCacheCleaner`).
+- [x] **Прочее** — NVIDIA ComputeCache в кэше шейдеров GPU, PyTorch Hub
+      в AI/ML, Docker Desktop vhdx в детекторе WSL-дисков.
+- [x] 7 новых тестов: перечисление UWP-кэшей (LocalState не цель),
+      очистка с сохранением каталогов, веб-кэши нового Teams (Cookies
+      не цель), семейство VS Code (logs/VSIX/User), уникальность и
+      наличие id в реестре. ruff/mypy зелёные, pytest — 435 тестов.
+
+Итог: `cleaners/uwp.py` (+реестр/discover), 5 целей в `apps.py`,
+10 в `devtools.py`, ComputeCache в `system.py`, torch hub в `aiml.py`.
 
 ---
 

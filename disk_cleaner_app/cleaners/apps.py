@@ -370,13 +370,18 @@ class WSLVhdxInfoCleaner(BaseCleaner):
 
     def affected_paths(self) -> tuple[Path, ...]:
         base = LOCAL / "Packages"
-        if not base.exists():
-            return ()
         hits: list[Path] = []
-        for distro in base.glob("CanonicalGroupLimited*"):
-            p = distro / "LocalState" / "ext4.vhdx"
-            if p.is_file():
-                hits.append(p)
+        if base.exists():
+            for distro in base.glob("CanonicalGroupLimited*"):
+                p = distro / "LocalState" / "ext4.vhdx"
+                if p.is_file():
+                    hits.append(p)
+        # Docker Desktop: тот же WSL2-механизм, тот же сценарий сжатия.
+        docker = LOCAL / "Docker" / "wsl"
+        for candidate in (docker / "disk" / "docker_data.vhdx",
+                          docker / "data" / "ext4.vhdx"):
+            if candidate.is_file():
+                hits.append(candidate)
         return tuple(hits)
 
     def get_size(self) -> int:
@@ -454,19 +459,207 @@ class GogGalaxyCacheCleaner(BaseCleaner):
         )
 
 
+class SpotifyCacheCleaner(BaseCleaner):
+    """Офлайн-хранилище Spotify: персистентный кэш, а не временный."""
+
+    id = "spotify"
+    name = "🎵 Spotify Cache"
+    group = GROUP_APPS
+    description = "%AppData%\\Spotify\\Storage, %LocalAppData%\\Spotify\\Data"
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_COMPONENTS
+    recommended = False
+    delete_mode = "contents"
+    why = (
+        "Хранилище кэша Spotify — один из самых больших кэшей на десктопе. "
+        "Внутри могут быть и офлайн-загрузки, поэтому цель не выбрана по "
+        "умолчанию и требует подтверждения."
+    )
+    loss = (
+        "Офлайн-загрузки музыки пропадут и будут скачаны заново; "
+        "логин, плейлисты и настройки не затрагиваются."
+    )
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        candidates = (
+            ROAMING / "Spotify" / "Storage",
+            LOCAL / "Spotify" / "Data",
+        )
+        return tuple(p for p in candidates if p.is_dir())
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Spotify cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте Spotify"
+        )
+
+
+class TeamsNewCacheCleaner(BaseCleaner):
+    """Новые Teams (пакет MSTeams): только веб-кэши, LocalState не трогаем."""
+
+    id = "teams_new"
+    name = "💬 Teams (новый) Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData%\\Packages\\MSTeams_8wekyb3d8bbwe (веб-кэши)"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = (
+        "Веб-кэш нового Teams (EBWebView). LocalState и LocalCache целиком "
+        "не трогаются — там настройки и вход."
+    )
+    loss = "Чаты и файлы загрузятся чуть медленнее; вход и история не затрагиваются."
+
+    _WEBVIEW_SUBS = (
+        ("Cache",),
+        ("Code Cache",),
+        ("GPUCache",),
+        ("Service Worker", "CacheStorage"),
+        ("Service Worker", "ScriptCache"),
+    )
+
+    def _candidates(self) -> list[Path]:
+        base = (
+            LOCAL / "Packages" / "MSTeams_8wekyb3d8bbwe"
+            / "LocalCache" / "Microsoft" / "Teams"
+        )
+        paths: list[Path] = []
+        webview_default = base / "EBWebView" / "Default"
+        for sub in self._WEBVIEW_SUBS:
+            paths.append(webview_default.joinpath(*sub))
+        for sub in self._WEBVIEW_SUBS[:3]:
+            paths.append(base.joinpath(*sub))
+        return [p for p in paths if p.is_dir()]
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        return tuple(self._candidates())
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Teams (новый) cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте Teams"
+        )
+
+
+class DiscordVariantsCacheCleaner(BaseCleaner):
+    """PTB и Canary-версии Discord с теми же кэшами, что и основной."""
+
+    id = "discord_ptb_canary"
+    name = "💬 Discord PTB/Canary Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData%\\DiscordPTB, DiscordCanary (Cache, Code Cache, GPUCache)"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "remove"
+    why = "Кэш тестовых версий Discord пересоздаётся; вход и настройки не затрагиваются."
+    loss = "Каналы и вложения будут загружаться чуть медленнее."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        paths: list[Path] = []
+        for base_name in ("DiscordPTB", "DiscordCanary"):
+            base = LOCAL / base_name
+            if not base.exists():
+                continue
+            for folder in base.iterdir():
+                if not folder.is_dir():
+                    continue
+                for sub in ("Cache", "Code Cache", "GPUCache"):
+                    p = folder / sub
+                    if p.exists():
+                        paths.append(p)
+        return tuple(paths)
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Discord PTB/Canary cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте Discord"
+        )
+
+
+class QBittorrentCacheCleaner(BaseCleaner):
+    """Кэш qBittorrent; fastresume и torrent-файлы не трогаем."""
+
+    id = "qbittorrent"
+    name = "🌀 qBittorrent Cache"
+    group = GROUP_APPS
+    description = "%LocalAppData%\\qBittorrent\\cache"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "contents"
+    why = "Внутренний кэш qBittorrent; список раздач (fastresume) не затрагивается."
+    loss = "Практически незаметно: кэш пересоздаётся на лету."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        candidates = (
+            LOCAL / "qBittorrent" / "cache",
+            ROAMING / "qBittorrent" / "cache",
+        )
+        return tuple(p for p in candidates if p.is_dir())
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "qBittorrent cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте qBittorrent"
+        )
+
+
+class AdobeCameraRawCacheCleaner(BaseCleaner):
+    """Кэш превью Camera Raw: тяжёлый, пересоздаётся из оригиналов."""
+
+    id = "adobe_camera_raw"
+    name = "🎨 Adobe Camera Raw Cache"
+    group = GROUP_APPS
+    description = "%AppData%\\Adobe\\CameraRaw\\Cache"
+    safety = SafetyLevel.SAFE
+    layer = LAYER_SAFE
+    delete_mode = "contents"
+    why = "Кэш превью RAW-файлов; оригиналы не трогаются."
+    loss = "Lightroom/ACR перестроит превью при следующем просмотре."
+
+    def affected_paths(self) -> tuple[Path, ...]:
+        candidate = ROAMING / "Adobe" / "CameraRaw" / "Cache"
+        return (candidate,) if candidate.is_dir() else ()
+
+    def get_size(self) -> int:
+        return sum(get_dir_size(p) for p in self.affected_paths())
+
+    def clean(self) -> tuple[str, str]:
+        ok = all(safe_rm_contents(p) for p in self.affected_paths())
+        return ("OK", "Camera Raw cache очищен") if ok else (
+            "ERR", "Часть кэша занята — закройте Adobe-приложения"
+        )
+
+
 APP_CLEANERS = [
     DiscordCacheCleaner,
+    DiscordVariantsCacheCleaner,
     TelegramCacheCleaner,
     SlackCacheCleaner,
     TeamsCacheCleaner,
+    TeamsNewCacheCleaner,
     ZoomCacheCleaner,
     YaMusicCacheCleaner,
+    SpotifyCacheCleaner,
     SteamCacheCleaner,
     SteamDepotCacheCleaner,
     ObsidianCacheCleaner,
     EpicGamesCacheCleaner,
     AdobeCacheCleaner,
+    AdobeCameraRawCacheCleaner,
     JavaCacheCleaner,
+    QBittorrentCacheCleaner,
     WSLVhdxInfoCleaner,
     BattleNetCacheCleaner,
     GogGalaxyCacheCleaner,

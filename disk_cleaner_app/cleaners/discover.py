@@ -85,11 +85,12 @@ def _builtin_affected_paths() -> list[Path]:
     from disk_cleaner_app.cleaners.browsers import BROWSER_CLEANERS
     from disk_cleaner_app.cleaners.devtools import DEVTOOLS_CLEANERS
     from disk_cleaner_app.cleaners.system import SYSTEM_CLEANERS
+    from disk_cleaner_app.cleaners.uwp import UWP_CLEANERS
 
     # Списки разнородные, mypy видит часть элементов абстрактными;
     # корректность инстанцирования проверяют тесты реестра и sync-тест.
     classes: tuple[Any, ...] = (
-        *SYSTEM_CLEANERS, *APP_CLEANERS, *DEVTOOLS_CLEANERS,
+        *SYSTEM_CLEANERS, *UWP_CLEANERS, *APP_CLEANERS, *DEVTOOLS_CLEANERS,
         *BROWSER_CLEANERS, *AIML_CLEANERS,
     )
     roots: list[Path] = []

@@ -30,18 +30,26 @@
 - **Системные цели** — корзина, Windows Temp, пользовательский Temp,
   Prefetch, кэш эскизов, WER (пользовательский + системный), дампы памяти
   и приложений, кэш Windows Update, Delivery Optimization, кэш шрифтов,
-  сброс DNS, кэш шейдеров GPU (NVIDIA/AMD/Intel), INetCache, CBS/DISM/Panther
-  логи (возрастные фильтры 24 ч / 30 дней).
+  сброс DNS, кэш шейдеров GPU (NVIDIA/AMD/Intel + ComputeCache), INetCache,
+  CBS/DISM/Panther логи (возрастные фильтры 24 ч / 30 дней), кэши
+  UWP/Store-приложений (AC\INetCache, AC\Temp, TempState всех пакетов —
+  LocalState и LocalCache не трогаются).
 - **Браузеры** — Chrome, Edge, Yandex, Brave, Vivaldi, Opera (все профили
   Chromium: Cache, Code Cache, GPU-кэши, Service Worker), Firefox (cache2,
   startupCache, offlineCache, shader-cache).
-- **Мессенджеры и приложения** — Discord, Telegram (только медиа-кэш, tdata
-  не трогаем), Slack, Teams, Zoom, Яндекс Музыка, Steam (htmlcache + depot),
-  Battle.net, GOG Galaxy, Obsidian, Epic Games (WebCache*), Adobe (Media Cache),
-  Java Deployment Cache, WSL vhdx (обнаружение + подсказка по сжатию).
-- **Dev-инструменты** — npm, pip, yarn, uv, bun, NuGet, Maven, Conda, Rust,
-  Gradle, Playwright, VS Code, Antigravity, Docker (`docker system prune`).
-- **AI/ML** — Whisper, HuggingFace, LM Studio, Ollama.
+- **Мессенджеры и приложения** — Discord (+ PTB/Canary), Telegram (только
+  медиа-кэш, tdata не трогаем), Slack, Teams (классический и новый —
+  веб-кэши EBWebView), Zoom, Яндекс Музыка, Steam (htmlcache + depot),
+  Battle.net, GOG Galaxy, Obsidian, Epic Games (WebCache*), Adobe
+  (Media Cache, Camera Raw), Java Deployment Cache, qBittorrent (кэш,
+  fastresume цел), Spotify (🟡 офлайн-загрузки пропадут), WSL/Docker vhdx
+  (обнаружение + подсказка по сжатию).
+- **Dev-инструменты** — npm, pip, yarn, uv, bun, pnpm, deno, poetry, pipx,
+  NuGet (http-cache + глобальный packages 🟡), Maven, Conda, Rust (registry
+  cache/src, git db), Go (build + modules), Gradle (Local + профиль),
+  Playwright, Cypress, Puppeteer, VS Code / VSCodium / Cursor (кэши,
+  Service Worker, logs, VSIX-хвосты), Docker (`docker system prune`).
+- **AI/ML** — Whisper, HuggingFace, LM Studio, Ollama, PyTorch Hub.
 - **Auto-discover** — автоматический поиск кэш-папок (cache/code cache/temp)
   в AppData с кэшированием на 5 минут; уже покрытые пути исключаются
   (covered-корни собираются из путей встроенных целей, поэтому новый

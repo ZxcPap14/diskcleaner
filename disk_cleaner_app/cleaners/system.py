@@ -478,19 +478,20 @@ class GpuShaderCacheCleaner(BaseCleaner):
     id = "gpu_cache"
     name = "🎮 Кэш шейдеров GPU"
     group = GROUP_SYSTEM
-    description = "D3DSCache, NVIDIA DXCache/GLCache, AMD, Intel"
+    description = "D3DSCache, NVIDIA DXCache/GLCache/ComputeCache, AMD, Intel"
     safety = SafetyLevel.SAFE
     layer = LAYER_SAFE
     paths = (
         LOCAL_APPDATA / "D3DSCache",
         LOCAL_APPDATA / "NVIDIA" / "DXCache",
         LOCAL_APPDATA / "NVIDIA" / "GLCache",
+        LOCAL_APPDATA / "NVIDIA" / "ComputeCache",
         LOCAL_APPDATA / "AMD" / "DxCache",
         LOCAL_APPDATA / "AMD" / "GLCache",
         LOCAL_APPDATA / "Intel" / "ShaderCache",
     )
-    why = "Скомпилированные шейдеры; драйвер соберёт их заново при первом запуске игры."
-    loss = "Первый запуск игры или 3D-приложения будет немного дольше."
+    why = "Скомпилированные шейдеры и CUDA JIT-кэш; драйвер соберёт их заново."
+    loss = "Первый запуск игры или CUDA-приложения будет немного дольше."
 
     def get_size(self) -> int:
         return sum(get_dir_size(p) for p in self.paths if p.exists())

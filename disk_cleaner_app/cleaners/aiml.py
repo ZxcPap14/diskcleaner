@@ -64,9 +64,18 @@ class OllamaModelsCleaner(_ModelCleaner):
     restore_hint = "ollama pull <model>"
 
 
+class TorchHubCacheCleaner(_ModelCleaner):
+    id = "torch_hub"
+    name = "🔥 PyTorch Hub Cache"
+    description = "%USER%\\.cache\\torch"
+    paths = (USER / ".cache" / "torch",)
+    restore_hint = "torch.hub.load(...) скачает модель заново."
+
+
 AIML_CLEANERS: list[type[BaseCleaner]] = [
     WhisperCacheCleaner,
     HuggingFaceCacheCleaner,
     LMStudioCacheCleaner,
     OllamaModelsCleaner,
+    TorchHubCacheCleaner,
 ]

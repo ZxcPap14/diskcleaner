@@ -82,21 +82,100 @@ class BunCacheCleaner(_PathCacheCleaner):
 class RustCacheCleaner(_PathCacheCleaner):
     id = "rust"
     name = "🦀 Rust cache"
-    description = "%LocalAppData%\\rustup\\cache, cargo\\registry\\cache"
+    description = "rustup\\cache, cargo registry (cache, src) и git db"
     paths = (
         LOCAL / "rustup" / "cache",
         LOCAL / "cargo" / "registry" / "cache",
+        LOCAL / "cargo" / "registry" / "src",
+        LOCAL / "cargo" / "git" / "db",
+        USER / ".cargo" / "registry" / "cache",
+        USER / ".cargo" / "registry" / "src",
+        USER / ".cargo" / "git" / "db",
     )
+
+
+class GoBuildCacheCleaner(_PathCacheCleaner):
+    id = "go_build"
+    name = "📦 Go build cache"
+    description = "%LocalAppData%\\go-build"
+    paths = (LOCAL / "go-build",)
+    why = "Компиляционный кэш Go; пересоздаётся при сборке."
+    loss = "Первая сборка после очистки будет дольше."
+
+
+class GoModCacheCleaner(_PathCacheCleaner):
+    id = "go_mod"
+    name = "📦 Go module cache"
+    description = "%UserProfile%\\go\\pkg\\mod"
+    paths = (USER / "go" / "pkg" / "mod",)
+    why = "Кэш скачанных модулей Go; пакеты скачаются заново при необходимости."
+    loss = "Следующая сборка скачает модули заново, особенно без сети."
+
+
+class PnpmStoreCleaner(_PathCacheCleaner):
+    id = "pnpm"
+    name = "📦 pnpm store"
+    description = "%LocalAppData%\\pnpm\\store, pnpm-cache"
+    paths = (
+        LOCAL / "pnpm" / "store",
+        LOCAL / "pnpm" / "cache",
+        LOCAL / "pnpm-cache",
+    )
+    why = (
+        "Хранилище пакетов pnpm. Существующие node_modules не ломаются: "
+        "файлы жёстких ссылок живут независимо от store."
+    )
+    loss = "Новые зависимости скачаются заново."
+
+
+class DenoCacheCleaner(_PathCacheCleaner):
+    id = "deno"
+    name = "📦 Deno cache"
+    description = "%LocalAppData%\\deno"
+    paths = (LOCAL / "deno",)
+
+
+class PoetryCacheCleaner(_PathCacheCleaner):
+    id = "poetry"
+    name = "📦 Poetry cache"
+    description = "%LocalAppData%\\pypoetry\\Cache"
+    paths = (LOCAL / "pypoetry" / "Cache",)
+
+
+class PipxCacheCleaner(_PathCacheCleaner):
+    id = "pipx"
+    name = "📦 pipx cache"
+    description = "%LocalAppData%\\pipx\\cache"
+    paths = (LOCAL / "pipx" / "cache",)
+
+
+class CypressCacheCleaner(_PathCacheCleaner):
+    id = "cypress"
+    name = "📦 Cypress binary cache"
+    description = "%LocalAppData%\\Cypress\\Cache (браузеры Cypress)"
+    paths = (LOCAL / "Cypress" / "Cache",)
+    why = "Скачанные бинарники Cypress; скачаются заново при следующем запуске."
+    loss = "cypress install потребуется снова (~200 МБ трафика)."
+
+
+class PuppeteerCacheCleaner(_PathCacheCleaner):
+    id = "puppeteer"
+    name = "📦 Puppeteer cache"
+    description = "%UserProfile%\\.cache\\puppeteer (браузеры Puppeteer)"
+    paths = (USER / ".cache" / "puppeteer",)
 
 
 class GradleCacheCleaner(_PathCacheCleaner):
     id = "gradle"
     name = "📦 Gradle caches"
-    description = "%LocalAppData%\\gradle\\caches"
+    description = "%LocalAppData%\\gradle\\caches, %UserProfile%\\.gradle\\caches"
     safety = SafetyLevel.CAUTION
     layer = LAYER_COMPONENTS
     recommended = False
-    paths = (LOCAL / "gradle" / "caches",)
+    paths = (
+        LOCAL / "gradle" / "caches",
+        USER / ".gradle" / "caches",
+    )
     why = "Кэш зависимостей Gradle; сборка скачает их заново."
     loss = "Следующая сборка будет заметно дольше, особенно без сети."
 
@@ -123,25 +202,48 @@ class PlaywrightBrowsersCleaner(BaseCleaner):
         return ("OK", "Playwright browsers очищены") if ok else ("ERR", "Ошибка")
 
 
-class VSCodeCacheCleaner(BaseCleaner):
-    id = "vscode_ext"
-    name = "📝 VS Code Cache"
+class _EditorCacheCleaner(BaseCleaner):
+    """Общая механика для VS Code и форков: кэши редактора + VSIX-хвосты."""
+
     group = GROUP_DEVTOOLS
-    description = "VS Code cache и недокачанные VSIX"
     safety = SafetyLevel.SAFE
     layer = LAYER_SAFE
     delete_mode = "remove"
-    why = "Кэш редактора и временные .tgz; сами расширения не трогаем."
+    why = "Кэш редактора и временные .tgz; сами расширения и настройки не трогаем."
     loss = "Редактор запустится чуть медленнее; расширения сохранятся."
+
+    # Подкаталоги в Roaming- и Local-базах данных редактора.
+    _ROAMING_SUBS = (
+        ("Cache",),
+        ("CachedData",),
+        ("Code Cache",),
+        ("GPUCache",),
+        ("Service Worker", "CacheStorage"),
+        ("Service Worker", "ScriptCache"),
+        ("CachedExtensionVSIXs",),
+        ("logs",),
+        ("CrashReports",),
+    )
+    _LOCAL_SUBS = (
+        ("Cache",),
+        ("CachedData",),
+        ("Code Cache",),
+        ("GPUCache",),
+    )
+
+    roaming_bases: tuple[Path, ...] = ()
+    local_bases: tuple[Path, ...] = ()
+    extensions_dirs: tuple[Path, ...] = ()
 
     def affected_paths(self) -> tuple[Path, ...]:
         paths: list[Path] = []
-        ext = USER / ".vscode" / "extensions"
-        if ext.exists():
-            paths.extend(p for p in ext.glob("_*.tgz") if p.is_file())
-        for base in (ROAMING / "Code", LOCAL / "Code"):
-            for sub in ("Cache", "CachedData", "GPUCache"):
-                p = base / sub
+        for ext_dir in self.extensions_dirs:
+            if ext_dir.exists():
+                paths.extend(p for p in ext_dir.glob("_*.tgz") if p.is_file())
+        for base in (*self.roaming_bases, *self.local_bases):
+            subs = self._ROAMING_SUBS if base in self.roaming_bases else self._LOCAL_SUBS
+            for sub in subs:
+                p = base.joinpath(*sub)
                 if p.exists():
                     paths.append(p)
         return tuple(paths)
@@ -159,7 +261,34 @@ class VSCodeCacheCleaner(BaseCleaner):
                     ok = False
             elif not safe_rm_contents(p):
                 ok = False
-        return ("OK", "VS Code cache очищен") if ok else ("ERR", "Ошибка")
+        return ("OK", f"{self.name} очищен") if ok else ("ERR", "Ошибка")
+
+
+class VSCodeCacheCleaner(_EditorCacheCleaner):
+    id = "vscode_ext"
+    name = "📝 VS Code Cache"
+    description = "VS Code cache (Code Cache, Service Worker, logs) и недокачанные VSIX"
+    roaming_bases = (ROAMING / "Code",)
+    local_bases = (LOCAL / "Code",)
+    extensions_dirs = (USER / ".vscode" / "extensions",)
+
+
+class VSCodiumCacheCleaner(_EditorCacheCleaner):
+    id = "vscodium_ext"
+    name = "📝 VSCodium Cache"
+    description = "VSCodium cache и недокачанные VSIX"
+    roaming_bases = (ROAMING / "VSCodium",)
+    local_bases = (LOCAL / "VSCodium",)
+    extensions_dirs = (USER / ".vscodium" / "extensions",)
+
+
+class CursorCacheCleaner(_EditorCacheCleaner):
+    id = "cursor_ext"
+    name = "📝 Cursor Cache"
+    description = "Cursor cache и недокачанные VSIX"
+    roaming_bases = (ROAMING / "Cursor",)
+    local_bases = (LOCAL / "Cursor",)
+    extensions_dirs = (USER / ".cursor" / "extensions",)
 
 
 class AntigravityExtensionsCleaner(BaseCleaner):
@@ -293,11 +422,27 @@ class DockerSystemCleaner(BaseCleaner):
 class NuGetCacheCleaner(_PathCacheCleaner):
     id = "nuget"
     name = "📦 NuGet cache"
-    description = "%LocalAppData%\\NuGet\\v3-cache и plugins-cache"
+    description = "%LocalAppData%\\NuGet: v3-cache, http-cache, plugins-cache"
     paths = (
         LOCAL / "NuGet" / "v3-cache",
+        LOCAL / "NuGet" / "http-cache",
         LOCAL / "NuGet" / "plugins-cache",
     )
+
+
+class NuGetPackagesCleaner(_PathCacheCleaner):
+    id = "nuget_packages"
+    name = "📦 NuGet global packages"
+    description = "%UserProfile%\\.nuget\\packages — глобальный кэш пакетов"
+    safety = SafetyLevel.CAUTION
+    layer = LAYER_COMPONENTS
+    recommended = False
+    paths = (USER / ".nuget" / "packages",)
+    why = (
+        "Глобальный кэш распакованных NuGet-пакетов; restore скачает их заново. "
+        "Не выбран по умолчанию: после очистки сборки без сети невозможны."
+    )
+    loss = "dotnet restore / сборка скачает пакеты заново (крупный трафик)."
 
 
 class MavenCacheCleaner(_PathCacheCleaner):
@@ -322,12 +467,23 @@ DEVTOOLS_CLEANERS = [
     YarnCacheCleaner,
     UvCacheCleaner,
     BunCacheCleaner,
+    PnpmStoreCleaner,
+    DenoCacheCleaner,
+    PoetryCacheCleaner,
+    PipxCacheCleaner,
     RustCacheCleaner,
+    GoBuildCacheCleaner,
+    GoModCacheCleaner,
     GradleCacheCleaner,
     PlaywrightBrowsersCleaner,
+    CypressCacheCleaner,
+    PuppeteerCacheCleaner,
     VSCodeCacheCleaner,
+    VSCodiumCacheCleaner,
+    CursorCacheCleaner,
     DockerSystemCleaner,
     NuGetCacheCleaner,
+    NuGetPackagesCleaner,
     MavenCacheCleaner,
     CondaCacheCleaner,
 ]

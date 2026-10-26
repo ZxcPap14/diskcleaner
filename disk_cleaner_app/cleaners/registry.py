@@ -18,6 +18,7 @@ from disk_cleaner_app.cleaners.discover import auto_discover_items
 from disk_cleaner_app.cleaners.orphans import OrphanAppDataCleaner
 from disk_cleaner_app.cleaners.safety import validate_custom_path
 from disk_cleaner_app.cleaners.system import SYSTEM_CLEANERS
+from disk_cleaner_app.cleaners.uwp import UWP_CLEANERS
 from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.item import GROUP_CUSTOM, SafetyLevel
 from disk_cleaner_app.models.target import LAYER_LEFTOVERS
@@ -94,7 +95,7 @@ class CleanerRegistry:
     def __init__(self, config: ConfigManager) -> None:
         self._config = config
         self._builtin_classes: list[type[BaseCleaner]] = (
-            SYSTEM_CLEANERS + BROWSER_CLEANERS +
+            SYSTEM_CLEANERS + UWP_CLEANERS + BROWSER_CLEANERS +
             DEVTOOLS_CLEANERS + APP_CLEANERS + AIML_CLEANERS +
             [OrphanAppDataCleaner]
         )
