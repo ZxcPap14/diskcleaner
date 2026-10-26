@@ -13,14 +13,22 @@ import customtkinter as ctk
 from disk_cleaner_app.cleaners.base import reset_scan_cancel, set_scan_cancel
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.services.analyzer import (
+    FileScan,
     empty_scan_root,
+    extension_label,
+    filter_files,
     find_empty_folders,
     normalize_root,
     remove_empty_folders,
-    scan_large_files,
+    scan_files,
     scan_top_folders,
 )
 from disk_cleaner_app.services.batch_delete import delete_many
+from disk_cleaner_app.services.large_files import (
+    format_age,
+    format_modified,
+    plural_files,
+)
 from disk_cleaner_app.services.startup import StartupManager
 from disk_cleaner_app.services.treemap import TreemapData
 from disk_cleaner_app.ui.assets import (
@@ -34,6 +42,8 @@ from disk_cleaner_app.ui.components.md3 import (
     MDButton,
     MDCard,
     MDLabel,
+    MDOptionMenu,
+    MDPill,
     MDTextbox,
     PageHeader,
 )
@@ -42,6 +52,20 @@ from disk_cleaner_app.ui.dispatch import UiDispatcher
 from disk_cleaner_app.ui.theme import ThemeManager
 
 PATH_RE = re.compile(r"[A-Za-z]:\\[^\n]*")
+
+SIZE_OPTIONS = {
+    "≥ 10 МБ": 10,
+    "≥ 100 МБ": 100,
+    "≥ 500 МБ": 500,
+    "≥ 1 ГБ": 1024,
+}
+AGE_OPTIONS = {
+    "Любой возраст": 0,
+    "Старше года": 365,
+    "Старше 3 лет": 1095,
+}
+SCAN_FLOOR_MB = 10
+REPORT_LIMIT = 200
 
 
 class AnalyzerView(ctk.CTkFrame):
@@ -66,6 +90,10 @@ class AnalyzerView(ctk.CTkFrame):
         self._cache: dict[
             tuple[str, str], tuple[datetime.datetime, str, list[str]]
         ] = {}
+        self._file_scan: FileScan | None = None
+        self._file_root = ""
+        self._file_moment: datetime.datetime | None = None
+        self._ext_by_label: dict[str, str] = {}
         self._ui = UiDispatcher(self)
         self._ui.start()
         self.configure(fg_color="transparent")
@@ -96,7 +124,7 @@ class AnalyzerView(ctk.CTkFrame):
         header = PageHeader(
             self, self._theme,
             "Анализ диска",
-            "Крупные папки, файлы, пустые каталоги и treemap",
+            "Крупные папки, файлы, расширения и treemap",
             icon="▤",
         )
         header.grid(row=0, column=0, sticky="ew", pady=(0, SPACE_3))
@@ -140,8 +168,7 @@ class AnalyzerView(ctk.CTkFrame):
 
         for text, cmd, kind, width in [
             ("Топ папок", "top", "tonal", 100),
-            ("Файлы > 500 МБ", "big500", "outlined", 124),
-            ("Файлы > 1 ГБ", "big1024", "outlined", 118),
+            ("Файлы и фильтры", "files", "outlined", 146),
             ("Пустые папки", "empty", "outlined", 118),
             ("Автозагрузка", "startup", "text", 106),
         ]:
@@ -155,6 +182,55 @@ class AnalyzerView(ctk.CTkFrame):
             kind="danger_text", width=126, height=32, state="disabled",
         )
         self.remove_empty_btn.pack(side="right")
+
+        # ── Фильтры отчёта «Файлы» (скрыты для остальных режимов) ──
+        self.filters = ctk.CTkFrame(tools, fg_color="transparent")
+        MDLabel(
+            self.filters, self._theme, "Фильтр", role="muted",
+            font=FONT_CAPTION,
+        ).pack(side="left", padx=(0, 8))
+
+        self.ext_menu = MDOptionMenu(
+            self.filters, self._theme, values=["Все расширения"],
+            width=208, height=30,
+            command=lambda _value: self._render_files(),
+        )
+        self.ext_menu.pack(side="left", padx=(0, 6))
+
+        self.size_menu = MDOptionMenu(
+            self.filters, self._theme, values=list(SIZE_OPTIONS),
+            width=112, height=30,
+            command=lambda _value: self._render_files(),
+        )
+        self.size_menu.set("≥ 10 МБ")
+        self.size_menu.pack(side="left", padx=(0, 6))
+
+        self.age_menu = MDOptionMenu(
+            self.filters, self._theme, values=list(AGE_OPTIONS),
+            width=138, height=30,
+            command=lambda _value: self._render_files(),
+        )
+        self.age_menu.pack(side="left", padx=(0, 6))
+
+        MDButton(
+            self.filters, self._theme, "Сброс", self._reset_file_filters,
+            kind="text_muted", width=62, height=30,
+        ).pack(side="left")
+
+        self.filter_info = MDLabel(
+            self.filters, self._theme, "", role="muted",
+            font=FONT_CAPTION, anchor="w",
+        )
+        self.filter_info.pack(side="left", padx=(10, 0))
+
+        # ── Карточка расширений ──────────────────────
+        self.ext_row = ctk.CTkFrame(tools, fg_color="transparent")
+        MDLabel(
+            self.ext_row, self._theme, "Расширения", role="muted",
+            font=FONT_CAPTION,
+        ).pack(side="left", padx=(0, 8))
+        self.ext_pills = ctk.CTkFrame(self.ext_row, fg_color="transparent")
+        self.ext_pills.pack(side="left")
 
         self.breadcrumb = MDLabel(
             tools, self._theme, "", role="muted", font=FONT_LABEL, anchor="w",
@@ -180,7 +256,8 @@ class AnalyzerView(ctk.CTkFrame):
             "1.0",
             "Выберите отчёт слева или постройте treemap.\n\n"
             "«Топ папок» — самые крупные каталоги,\n"
-            "«Файлы > 500 МБ» и «Файлы > 1 ГБ» — тяжёлые файлы,\n"
+            "«Файлы и фильтры» — крупные файлы и их расширения\n"
+            "  (фильтры по расширению, размеру и возрасту),\n"
             "«Пустые папки» — каталоги без файлов,\n"
             "«Автозагрузка» — программы в автозапуске Windows.",
         )
@@ -205,6 +282,25 @@ class AnalyzerView(ctk.CTkFrame):
         key = (root, mode)
         self._last_mode = mode
         self._last_root = root
+        self._set_file_controls(mode == "files")
+        if mode != "empty":
+            self.remove_empty_btn.configure(state="disabled")
+
+        if (
+            mode == "files"
+            and not force
+            and self._file_scan is not None
+            and self._file_root == root
+        ):
+            self._show_text()
+            self._render_files()
+            moment = self._file_moment
+            when = moment.strftime("%H:%M") if moment else "—"
+            self._update_breadcrumb(f"📄 файлы · {root} · кэш {when}")
+            if self._statusbar:
+                self._statusbar.set_status(f"✅  Из кэша ({when}) — «Обновить» для повтора")
+            return
+
         if not force and key in self._cache:
             moment, text, empty = self._cache[key]
             self._last_text = text
@@ -231,7 +327,14 @@ class AnalyzerView(ctk.CTkFrame):
         self._show_text()
         self.text_result.configure(state="normal")
         self.text_result.delete("1.0", "end")
-        self.text_result.insert("1.0", f"🔄 Сканирование {root}...")
+        if mode == "files":
+            self.text_result.insert(
+                "1.0",
+                f"🔄  Сканирую файлы и расширения на {root}...\n\n"
+                "Обычно это занимает до двух минут. «Стоп» — отмена.",
+            )
+        else:
+            self.text_result.insert("1.0", f"🔄 Сканирование {root}...")
         self.text_result.configure(state="disabled")
         self._update_breadcrumb(f"📊 {mode} · {root}")
         if self._statusbar:
@@ -250,6 +353,8 @@ class AnalyzerView(ctk.CTkFrame):
     def set_drive(self, drive: str | None) -> None:
         """Переключить диск: сбросить кэш и обновить подписи."""
         self._cache.clear()
+        self._file_scan = None
+        self._file_root = ""
         root = normalize_root(drive)
         self.treemap_btn.configure(text=f"Treemap · {root}")
         self._update_breadcrumb(f"💽  Диск: {root}")
@@ -270,15 +375,12 @@ class AnalyzerView(ctk.CTkFrame):
                         f"{i:2d}. {f['name']:30s} {format_bytes(f['size']):>10s}  {bar}\n"
                         f"     📍 {f['path']}\n"
                     )
-            elif mode.startswith("big"):
-                mb = int(mode[3:])
-                text = f"📄  ФАЙЛЫ >{mb} МБ · {root}\n" + "═" * 50 + "\n"
-                files = scan_large_files(root, mb, 50, cancel=self._cancel)
-                for i, f in enumerate(files, 1):
-                    text += (
-                        f"{i:2d}. {format_bytes(f['size']):>10s}  {f['name']}\n"
-                        f"     📍 {f['path']}\n"
-                    )
+            elif mode == "files":
+                scan = scan_files(
+                    root, SCAN_FLOOR_MB, 5000, cancel=self._cancel
+                )
+                self._ui.post(self._finish_file_scan, scan, root)
+                return
             elif mode == "empty":
                 empty = find_empty_folders(root, cancel=self._cancel)
                 text = (
@@ -319,6 +421,145 @@ class AnalyzerView(ctk.CTkFrame):
             self.remove_empty_btn.configure(
                 state="normal" if empty else "disabled"
             )
+
+    def _set_file_controls(self, visible: bool) -> None:
+        """Показать фильтры и карточку расширений только для отчёта «Файлы»."""
+        if visible:
+            if not self.filters.winfo_manager():
+                self.filters.pack(
+                    fill="x", padx=14, pady=(0, 4), before=self.breadcrumb
+                )
+            if not self.ext_row.winfo_manager():
+                self.ext_row.pack(
+                    fill="x", padx=14, pady=(0, 8), before=self.breadcrumb
+                )
+        else:
+            self.filters.pack_forget()
+            self.ext_row.pack_forget()
+
+    def _finish_file_scan(self, scan: FileScan, root: str) -> None:
+        self._is_scanning = False
+        self.cancel_btn.configure(state="disabled")
+        self._file_scan = scan
+        self._file_root = root
+        self._file_moment = datetime.datetime.now()
+        self._populate_file_controls(scan)
+        self._render_files()
+
+    def _populate_file_controls(self, scan: FileScan) -> None:
+        """Собрать список расширений и чипы из уже выполненного скана."""
+        labels = ["Все расширения"]
+        self._ext_by_label = {"Все расширения": ""}
+        for stat in scan.extensions[:12]:
+            label = f"{extension_label(stat.extension)} · {format_bytes(stat.size)}"
+            labels.append(label)
+            self._ext_by_label[label] = stat.extension or "."
+        self.ext_menu.configure(values=labels)
+        self.ext_menu.set("Все расширения")
+
+        for child in self.ext_pills.winfo_children():
+            child.destroy()
+        if not scan.extensions:
+            MDLabel(
+                self.ext_pills, self._theme, "нет файлов выше порога",
+                role="muted", font=FONT_CAPTION,
+            ).pack(side="left")
+            return
+
+        total = scan.total_bytes or 1
+        for stat in scan.extensions[:4]:
+            percent = round(stat.size * 100 / total)
+            MDPill(
+                self.ext_pills, self._theme,
+                f"{extension_label(stat.extension)} · "
+                f"{format_bytes(stat.size)} · {percent}%",
+            ).pack(side="left", padx=(0, 6))
+        rest = len(scan.extensions) - 4
+        if rest > 0:
+            MDLabel(
+                self.ext_pills, self._theme, f"ещё {rest}",
+                role="muted", font=FONT_CAPTION,
+            ).pack(side="left", padx=(2, 0))
+
+    def _render_files(self) -> None:
+        """Перерисовать отчёт из уже собранного списка (без обхода диска)."""
+        scan = self._file_scan
+        if scan is None:
+            return
+        extension = self._ext_by_label.get(self.ext_menu.get(), "")
+        size_mb = SIZE_OPTIONS.get(self.size_menu.get(), SCAN_FLOOR_MB)
+        age_days = AGE_OPTIONS.get(self.age_menu.get(), 0)
+        matched = filter_files(scan.files, extension, size_mb, age_days)
+        matched_total = sum(int(f.get("size", 0)) for f in matched)
+
+        lines = [
+            f"📄  ФАЙЛЫ И РАСШИРЕНИЯ · {self._file_root}",
+            "═" * 52,
+            f"Всего файлов ≥ {SCAN_FLOOR_MB} МБ: {scan.total_files} · "
+            f"{format_bytes(scan.total_bytes)}",
+        ]
+        if scan.truncated:
+            lines.append(
+                f"Для фильтров оставлены {len(scan.files)} крупнейших; "
+                "итоги по расширениям — по всем файлам."
+            )
+        if scan.extensions:
+            head = " · ".join(
+                f"{extension_label(s.extension)} {format_bytes(s.size)}"
+                for s in scan.extensions[:5]
+            )
+            lines.append(f"Расширения: {head}")
+        lines.append("")
+
+        active: list[str] = []
+        if extension:
+            active.append(extension_label("" if extension == "." else extension))
+        if size_mb > SCAN_FLOOR_MB:
+            active.append(self.size_menu.get())
+        if age_days:
+            active.append(self.age_menu.get().lower())
+        lines.append("Фильтр: " + (" · ".join(active) if active else "без ограничений"))
+        lines.append(
+            f"Подходит: {len(matched)} {plural_files(len(matched))} · "
+            f"{format_bytes(matched_total)}"
+        )
+        lines.append("─" * 52)
+
+        if self._cancel.is_set():
+            lines.insert(0, "⏹  Сканирование остановлено — данные частичные.\n")
+
+        if not matched:
+            lines.append(
+                "Под фильтр ничего не подошло — ослабьте условия или нажмите «Сброс»."
+            )
+        else:
+            for i, f in enumerate(matched[:REPORT_LIMIT], 1):
+                modified = float(f.get("modified", 0) or 0)
+                lines.append(
+                    f"{i:3d}. {format_bytes(f['size']):>10s}  "
+                    f"{format_modified(modified)} · {format_age(modified)}"
+                )
+                lines.append(f"     📍 {f['path']}")
+            if len(matched) > REPORT_LIMIT:
+                lines.append(
+                    f"\n… ещё {len(matched) - REPORT_LIMIT} файлов не показаны "
+                    f"(лимит отчёта {REPORT_LIMIT})."
+                )
+
+        text = "\n".join(lines)
+        self._last_text = text
+        self._last_empty = []
+        self._show_text()
+        self._show_text_result(text)
+        self.filter_info.configure(
+            text=f"{len(matched)} · {format_bytes(matched_total)}"
+        )
+
+    def _reset_file_filters(self) -> None:
+        self.ext_menu.set("Все расширения")
+        self.size_menu.set("≥ 10 МБ")
+        self.age_menu.set("Любой возраст")
+        self._render_files()
 
     def _cancel_analysis(self) -> None:
         if not self._is_scanning:
@@ -442,7 +683,9 @@ class AnalyzerView(ctk.CTkFrame):
         if result["deleted"]:
             self._on_log(f"🗑️  В корзину: {path}")
             self._cache.clear()
-            self._run_analysis("big500", force=True)
+            self._file_scan = None
+            if self._last_mode == "files":
+                self._run_analysis("files", force=True)
         else:
             self._on_log(f"⚠️  Не удалось переместить: {path}")
 
