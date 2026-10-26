@@ -21,6 +21,7 @@ from disk_cleaner_app.ui.components.md3 import (
     MDCard,
     MDEntry,
     MDLabel,
+    MDOptionMenu,
     MDSegmented,
     MDTextbox,
     PageHeader,
@@ -45,6 +46,11 @@ class UninstallerView(ctk.CTkFrame):
         self._apps: list[dict] = []
         self._scan_level = "Safe"
         self._is_uninstalling = False
+        self._rows: dict[str, dict] = {}
+        self._measure_generation = 0
+        self._measured_total = 0
+        self._measure_total = 0
+        self._queue_stop = threading.Event()
         self._ui = UiDispatcher(self)
         self._ui.start()
         self.configure(fg_color="transparent")
@@ -114,8 +120,8 @@ class UninstallerView(ctk.CTkFrame):
         ).pack(side="left", padx=(18, 8))
         self.sort_var = ctk.StringVar(value="По имени")
         self._sort_mode = "name"
-        ctk.CTkOptionMenu(
-            options,
+        MDOptionMenu(
+            options, self._theme,
             values=["По имени", "По размеру", "По дате установки"],
             variable=self.sort_var, width=160, height=34,
             command=self._set_sort,
@@ -128,7 +134,7 @@ class UninstallerView(ctk.CTkFrame):
         self.leftovers_btn.pack(side="right", padx=(6, 0))
 
         self.uninstall_btn = MDButton(
-            options, self._theme, "Удалить программу", self._uninstall_selected,
+            options, self._theme, "Удалить выбранные", self._uninstall_selected,
             kind="danger", width=152, height=34,
         )
         self.uninstall_btn.pack(side="right")
@@ -147,13 +153,13 @@ class UninstallerView(ctk.CTkFrame):
         list_top.pack(fill="x", padx=14, pady=(12, 6))
         SectionTitle(
             list_top, self._theme, "Установленные программы",
-            "Двойной клик запускает деинсталлятор",
+            "Двойной клик — одна программа, Ctrl — несколько",
         ).pack(side="left")
 
         style_treeview("Uninstall", self._theme, row_height=32)
         self.tree = ttk.Treeview(
             list_card, columns=("name", "version", "size", "date"),
-            show="headings", selectmode="browse", height=14,
+            show="headings", selectmode="extended", height=14,
             style="Uninstall.Treeview",
         )
         self.tree.heading("name", text="Программа", anchor="w")
@@ -173,7 +179,7 @@ class UninstallerView(ctk.CTkFrame):
         self.tree.configure(yscrollcommand=self._list_scroll.set)
         self.tree.pack(side="left", fill="both", expand=True, padx=(14, 2), pady=(0, 12))
         self._list_scroll.pack(side="right", fill="y", padx=(0, 10), pady=(0, 12))
-        self.tree.bind("<Double-1>", lambda e: self._uninstall_selected())
+        self.tree.bind("<Double-1>", self._on_double_click)
 
         log_card = MDCard(panes, self._theme, tone="low")
         log_card.grid(row=0, column=1, sticky="nsew")
@@ -182,7 +188,7 @@ class UninstallerView(ctk.CTkFrame):
         log_top.pack(fill="x", padx=14, pady=(12, 6))
         SectionTitle(
             log_top, self._theme, "Журнал удаления",
-            "Результаты деинсталляции и поиска остатков",
+            "Результаты и остатки",
         ).pack(side="left")
 
         self.log_text = MDTextbox(
@@ -206,7 +212,89 @@ class UninstallerView(ctk.CTkFrame):
 
     def _display(self, apps: list[dict]) -> None:
         self._apps = apps
+        self._measured_total = 0
+        self._measure_total = 0
+        for app in apps:
+            app.pop("real_size", None)
         self._filter_apps()
+        self._start_measurement()
+
+    @staticmethod
+    def _size_key(app: dict) -> int:
+        """Реальный размер, иначе оценка из реестра (EstimatedSize)."""
+        real = app.get("real_size")
+        if isinstance(real, int) and not isinstance(real, bool):
+            return real
+        return int(app.get("size_kb", 0) or 0) * 1024
+
+    @staticmethod
+    def _size_text(app: dict) -> str:
+        if "real_size" in app:
+            real = app["real_size"]
+            if isinstance(real, int) and not isinstance(real, bool):
+                return format_bytes(real)
+            return "—"
+        estimated = int(app.get("size_kb", 0) or 0)
+        if estimated > 0:
+            return "≈ " + format_bytes(estimated * 1024)
+        if str(app.get("install_location", "") or "").strip():
+            return "…"
+        return "—"
+
+    def _info_text(self, shown: int) -> str:
+        text = f"Показано: {shown} из {len(self._apps)}"
+        if self._measure_total:
+            text += f" · размеры: {self._measured_total}/{self._measure_total}"
+        return text
+
+    def _start_measurement(self) -> None:
+        """Посчитать реальные размеры установочных папок в фоне."""
+        self._measure_generation += 1
+        generation = self._measure_generation
+        apps = [a for a in self._apps
+                if str(a.get("install_location", "") or "").strip()]
+        self._measure_total = len(apps)
+        if not apps:
+            self._filter_apps()
+            return
+
+        def worker() -> None:
+            for app in apps:
+                if generation != self._measure_generation:
+                    return
+                try:
+                    size = self._uninstaller.install_size(app)
+                except Exception:
+                    size = None
+                self._ui.post(self._apply_size, generation, app, size)
+            self._ui.post(self._measurement_done, generation)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="uninstaller-sizes").start()
+
+    def _apply_size(self, generation: int, app: dict, size: int | None) -> None:
+        if generation != self._measure_generation:
+            return
+        app["real_size"] = size
+        self._measured_total += 1
+        for iid, row_app in self._rows.items():
+            if row_app is app:
+                self.tree.set(iid, "size", self._size_text(app))
+                break
+        self.info_label.configure(text=self._info_text(len(self._rows)))
+
+    def _measurement_done(self, generation: int) -> None:
+        if generation != self._measure_generation:
+            return
+        selected = {str(app.get("name", "")) for app in self._selected_apps()}
+        if self._sort_mode == "size":
+            self._filter_apps()
+            wanted = [iid for iid, app in self._rows.items()
+                      if str(app.get("name", "")) in selected]
+            if wanted:
+                self.tree.selection_set(wanted)
+        else:
+            self.info_label.configure(text=self._info_text(len(self._rows)))
 
     def _set_sort(self, label: str) -> None:
         modes = {
@@ -231,7 +319,7 @@ class UninstallerView(ctk.CTkFrame):
         apps = [a for a in self._apps
                 if not query or query in str(a.get("name", "")).lower()]
         if self._sort_mode == "size":
-            apps.sort(key=lambda a: int(a.get("size_kb", 0) or 0), reverse=True)
+            apps.sort(key=self._size_key, reverse=True)
         elif self._sort_mode == "date":
             apps.sort(key=lambda a: str(a.get("install_date", "")), reverse=True)
         return apps
@@ -241,69 +329,105 @@ class UninstallerView(ctk.CTkFrame):
             self.tree.delete(i)
 
         apps = self._visible_apps()
+        self._rows = {}
 
         shown = 0
-        for app in apps:
-            sz = app.get("size_kb", 0)
-            sz_str = format_bytes(sz * 1024) if sz > 0 else "—"
-            self.tree.insert("", "end", values=(
+        for idx, app in enumerate(apps):
+            iid = str(idx)
+            self._rows[iid] = app
+            self.tree.insert("", "end", iid=iid, values=(
                 app.get("name", ""),
                 app.get("version", ""),
-                sz_str,
+                self._size_text(app),
                 self._install_date_label(app),
             ))
             shown += 1
 
-        self.info_label.configure(text=f"Показано: {shown} из {len(self._apps)}")
+        self.info_label.configure(text=self._info_text(shown))
+
+    def _on_double_click(self, event) -> None:
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        self._uninstall_selected()
 
     def _uninstall_selected(self) -> None:
         if self._is_uninstalling:
             return
-        app = self._selected_app()
-        if app is None:
-            return
-        name = app.get("name", "?")
-
-        if not messagebox.askyesno(
-            "Удаление",
-            f"Удалить '{name}'?\n\n"
-            "Будет запущен штатный деинсталлятор программы.\n"
-            "Остатки автоматически не удаляются — их можно найти отдельно.",
-        ):
+        apps = self._selected_apps()
+        if not apps:
+            messagebox.showinfo("Удаление", "Сначала выберите программу в списке.")
             return
 
+        if len(apps) == 1:
+            app = apps[0]
+            name = app.get("name", "?")
+            if not messagebox.askyesno(
+                "Удаление",
+                f"Удалить '{name}'?\n\n"
+                "Будет запущен штатный деинсталлятор программы.\n"
+                "Остатки автоматически не удаляются — их можно найти отдельно.",
+            ):
+                return
+        else:
+            lines = "\n".join(f"• {a.get('name', '?')}" for a in apps[:8])
+            tail = f"\n… и ещё {len(apps) - 8}." if len(apps) > 8 else ""
+            if not messagebox.askyesno(
+                "Очередь удаления",
+                f"Удалить {len(apps)} программ?\n\n{lines}{tail}\n\n"
+                "Деинсталляторы запускаются по очереди. Каждый может показать "
+                "свои диалоги; очередь продолжится после его завершения.",
+            ):
+                return
+
+        self._queue_stop.clear()
         self._is_uninstalling = True
-        self.uninstall_btn.configure(state="disabled")
+        self.uninstall_btn.configure(text="⏹ Остановить", command=self._stop_queue)
         self.leftovers_btn.configure(state="disabled")
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
-        self.log_text.insert("1.0", f"Удаление: {name}\n\n")
+        title = (f"Удаление: {apps[0].get('name', '?')}"
+                 if len(apps) == 1 else f"Очередь удаления: {len(apps)} программ")
+        self.log_text.insert("1.0", f"{title}\n\n")
         self.log_text.configure(state="disabled")
 
         def worker():
-            logs = self._uninstaller.uninstall(app)
-            self._ui.post(self._show_log, logs)
-            self._ui.post(self._on_log, f"{name}: деинсталлятор запущен")
+            self._uninstaller.uninstall_many(
+                apps,
+                on_log=lambda line: self._ui.post(self._show_log, [line]),
+                should_stop=self._queue_stop.is_set,
+            )
+            self._ui.post(self._on_log, f"Очередь удаления: {len(apps)} программ")
             self._ui.post(self._finish_uninstall)
-            # Обновить список после завершения деинсталлятора
-            self._ui.post_after(2000, self._load_apps)
+            # Обновить список после завершения очереди.
+            self._ui.post_after(1500, self._load_apps)
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True,
+                         name="uninstaller-queue").start()
+
+    def _stop_queue(self) -> None:
+        if not self._is_uninstalling:
+            return
+        self._queue_stop.set()
+        self.uninstall_btn.configure(text="Останавливаю…", state="disabled")
+        self._show_log(["⏹ Останавливаю после текущей программы…"])
 
     def _finish_uninstall(self) -> None:
         self._is_uninstalling = False
-        self.uninstall_btn.configure(state="normal")
+        self.uninstall_btn.configure(
+            text="Удалить выбранные", command=self._uninstall_selected,
+            state="normal",
+        )
         self.leftovers_btn.configure(state="normal")
 
+    def _selected_apps(self) -> list[dict]:
+        return [self._rows[iid] for iid in self.tree.selection()
+                if iid in self._rows]
+
     def _selected_app(self) -> dict | None:
-        sel = self.tree.selection()
-        if not sel:
-            return None
-        visible = self._visible_apps()
-        idx = self.tree.index(sel[0])
-        if idx >= len(visible):
-            return None
-        return visible[idx]
+        apps = self._selected_apps()
+        return apps[0] if apps else None
 
     def _scan_leftovers(self) -> None:
         if self._is_uninstalling:
@@ -318,7 +442,10 @@ class UninstallerView(ctk.CTkFrame):
         self._is_uninstalling = True
         self.leftovers_btn.configure(state="disabled")
         self.uninstall_btn.configure(state="disabled")
-        self._show_log([f"Поиск остатков ({level}): {name}"])
+        header = [f"Поиск остатков ({level}): {name}"]
+        if len(self.tree.selection()) > 1:
+            header.append("ℹ️  Остатки ищутся только для первой выбранной программы.")
+        self._show_log(header)
 
         def worker():
             try:
@@ -505,6 +632,8 @@ class UninstallerView(ctk.CTkFrame):
         )
 
     def destroy(self) -> None:
+        self._measure_generation += 1
+        self._queue_stop.set()
         try:
             self._ui.stop()
         except Exception:

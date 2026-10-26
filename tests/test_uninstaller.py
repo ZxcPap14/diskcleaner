@@ -129,3 +129,98 @@ def test_install_date_label_formats_registry_value() -> None:
     assert UninstallerView._install_date_label({"install_date": ""}) == "—"
     assert UninstallerView._install_date_label({}) == "—"
     assert UninstallerView._install_date_label({"install_date": "bad"}) == "—"
+
+
+def test_install_size_counts_install_folder(tmp_path: Path) -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    target = tmp_path / "TestApp"
+    (target / "sub").mkdir(parents=True)
+    (target / "a.bin").write_bytes(b"x" * 300)
+    (target / "sub" / "b.bin").write_bytes(b"y" * 200)
+
+    size = uninstaller.install_size({"install_location": str(target)})
+
+    assert size == 500
+
+
+def test_install_size_handles_quotes_and_files(tmp_path: Path) -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+    target = tmp_path / "app.exe"
+    target.write_bytes(b"z" * 42)
+
+    assert uninstaller.install_size({"install_location": f'"{target}"'}) == 42
+
+
+def test_install_size_returns_none_for_missing_or_unsafe(tmp_path: Path) -> None:
+    uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
+
+    assert uninstaller.install_size({}) is None
+    assert uninstaller.install_size({"install_location": ""}) is None
+    assert uninstaller.install_size(
+        {"install_location": str(tmp_path / "missing")}
+    ) is None
+    assert uninstaller.install_size(
+        {"install_location": str(Path.home())}
+    ) is None
+
+
+class _FakeUninstaller(AppUninstaller):
+    def __init__(self) -> None:
+        super().__init__(appdata_roots=[], program_roots=[])
+        self.calls: list[str] = []
+
+    def uninstall(self, app: dict) -> list[str]:
+        self.calls.append(str(app.get("name")))
+        return [f"✅ {app.get('name')} удалена"]
+
+
+def test_uninstall_many_runs_in_order() -> None:
+    fake = _FakeUninstaller()
+    apps = [{"name": "A"}, {"name": "B"}, {"name": "C"}]
+
+    logs = fake.uninstall_many(apps)
+
+    assert fake.calls == ["A", "B", "C"]
+    assert "[1/3] A" in logs[0]
+    assert logs[-1].startswith("✅ Очередь завершена: 3")
+
+
+def test_uninstall_many_stops_before_next_app() -> None:
+    fake = _FakeUninstaller()
+    stop = {"value": False}
+
+    def on_log(line: str) -> None:
+        if line.startswith("▶ [1/"):
+            stop["value"] = True
+
+    logs = fake.uninstall_many(
+        [{"name": "A"}, {"name": "B"}],
+        on_log=on_log,
+        should_stop=lambda: stop["value"],
+    )
+
+    assert fake.calls == ["A"]
+    assert logs[-1] == "⏹ Остановлено: выполнено 1 из 2."
+
+
+def test_uninstall_many_handles_empty_list() -> None:
+    assert _FakeUninstaller().uninstall_many([]) == []
+
+
+def test_size_text_shows_real_estimate_and_pending() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    assert UninstallerView._size_text({"real_size": 1024}) == "1.0 КБ"
+    assert UninstallerView._size_text({"real_size": None}) == "—"
+    assert UninstallerView._size_text(
+        {"size_kb": 2048, "install_location": r"C:\App"}
+    ) == "≈ 2.0 МБ"
+    assert UninstallerView._size_text({"install_location": r"C:\App"}) == "…"
+    assert UninstallerView._size_text({}) == "—"
+
+
+def test_size_key_prefers_real_size() -> None:
+    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
+
+    assert UninstallerView._size_key({"real_size": 10, "size_kb": 1}) == 10
+    assert UninstallerView._size_key({"size_kb": 1}) == 1024

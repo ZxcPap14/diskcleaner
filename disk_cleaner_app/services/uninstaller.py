@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import winreg
+from collections.abc import Callable
 from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import get_dir_size
@@ -152,6 +153,67 @@ class AppUninstaller:
             logs.append(f"❌ Ошибка запуска: {e}")
 
         logs.append("ℹ️  Остатки не удалены автоматически — используйте «Найти остатки».")
+        return logs
+
+    # ── реальный размер и очередь ───────────────────────
+
+    def install_size(self, app: dict) -> int | None:
+        """Размер установочной папки, если ``InstallLocation`` известен.
+
+        ``None`` означает «посчитать нельзя»: путь пуст, не существует,
+        указывает на защищённый каталог или на корень тома.
+        """
+        raw = str(app.get("install_location", "") or "").strip().strip('"')
+        if not raw:
+            return None
+        try:
+            path = Path(raw).expanduser()
+        except (OSError, ValueError):
+            return None
+        if not self._is_safe_target(path):
+            return None
+        try:
+            if path.is_dir():
+                return get_dir_size(path)
+            return path.stat().st_size
+        except OSError:
+            return None
+
+    def uninstall_many(
+        self,
+        apps: list[dict],
+        on_log: Callable[[str], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> list[str]:
+        """Запустить деинсталляторы по очереди.
+
+        ``on_log`` вызывается из текущего (рабочего) потока для каждой
+        строки — UI обязан переключаться в свой поток сам. ``should_stop``
+        проверяется перед следующей программой: текущий деинсталлятор
+        не прерывается.
+        """
+        logs: list[str] = []
+        total = len(apps)
+        completed = 0
+
+        def emit(line: str) -> None:
+            logs.append(line)
+            if on_log is not None:
+                on_log(line)
+
+        for index, app in enumerate(apps, 1):
+            if should_stop is not None and should_stop():
+                break
+            name = str(app.get("name", "?"))
+            emit(f"▶ [{index}/{total}] {name}")
+            for line in self.uninstall(app):
+                emit(line)
+            completed += 1
+
+        if completed < total:
+            emit(f"⏹ Остановлено: выполнено {completed} из {total}.")
+        elif total:
+            emit(f"✅ Очередь завершена: {completed} программ.")
         return logs
 
     # ── поиск остатков (без удаления) ───────────────────

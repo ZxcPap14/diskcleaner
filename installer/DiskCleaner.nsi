@@ -1,7 +1,7 @@
 ﻿; DiskCleaner Pro — установщик NSIS 3.x
 ; Сборка: python build_installer.py
 ; Прямая компиляция:
-;   makensis /DAPP_VERSION=4.10.0 /DSOURCE_DIR=..\dist /DOUTPUT_FILE=..\dist\Setup.exe installer\DiskCleaner.nsi
+;   makensis /DAPP_VERSION=4.10.1 /DSOURCE_DIR=..\dist /DOUTPUT_FILE=..\dist\Setup.exe installer\DiskCleaner.nsi
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -14,7 +14,7 @@ RequestExecutionLevel user
 !include "MUI2.nsh"
 
 !ifndef APP_VERSION
-  !define APP_VERSION "4.10.0"
+  !define APP_VERSION "4.10.1"
 !endif
 !ifndef SOURCE_DIR
   !define SOURCE_DIR "..\dist"
