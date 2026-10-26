@@ -161,6 +161,7 @@ class MainWindow:
             statusbar=self.statusbar,
             on_reload=lambda: self._load_deep_cleaners(force=True),
             on_elevate=self._request_admin,
+            get_drive=lambda: self._drive,
         )
 
         self.views["analyzer"] = AnalyzerView(

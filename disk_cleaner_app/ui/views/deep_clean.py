@@ -23,6 +23,7 @@ from disk_cleaner_app.models.history import HistoryManager
 from disk_cleaner_app.models.item import SafetyLevel, format_bytes
 from disk_cleaner_app.models.target import (
     LAYER_COMPONENTS,
+    LAYER_INVENTORY,
     LAYER_LEFTOVERS,
     LAYER_SAFE,
     LAYERS,
@@ -51,6 +52,7 @@ from disk_cleaner_app.ui.assets import (
     SPACE_2,
     SPACE_3,
 )
+from disk_cleaner_app.ui.components.large_files_dialog import LargeFilesDialog
 from disk_cleaner_app.ui.components.md3 import (
     MDButton,
     MDCard,
@@ -407,6 +409,25 @@ class _LayerGroup(ctk.CTkFrame):
     def add_row(self, row: _TargetRow) -> None:
         row.pack(fill="x", padx=(4, 0), pady=1)
 
+    def add_action(
+        self,
+        label: str,
+        command: Callable[[], None],
+        hint: str = "",
+    ) -> None:
+        """Действие слоя, которое ничего не выбирает и не удаляет."""
+        holder = ctk.CTkFrame(self.body, fg_color="transparent")
+        holder.pack(fill="x", padx=(34, 8), pady=(4, 8))
+        MDButton(
+            holder, self._theme, label, command,
+            kind="tonal", width=214, height=32,
+        ).pack(side="left")
+        if hint:
+            MDLabel(
+                holder, self._theme, hint, role="muted",
+                font=FONT_CAPTION, anchor="w",
+            ).pack(side="left", padx=(10, 0))
+
     def _header_toggled(self) -> None:
         if self._syncing:
             return
@@ -454,6 +475,7 @@ class DeepCleanView(ctk.CTkFrame):
         statusbar=None,
         on_reload: Callable[[], None] | None = None,
         on_elevate: Callable[[], None] | None = None,
+        get_drive: Callable[[], str | None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
@@ -463,6 +485,7 @@ class DeepCleanView(ctk.CTkFrame):
         self._statusbar = statusbar
         self._on_reload = on_reload
         self._on_elevate = on_elevate
+        self._get_drive = get_drive
 
         self._scan_engine = ScanEngine()
         self._clean_engine = CleanEngine()
@@ -681,6 +704,12 @@ class DeepCleanView(ctk.CTkFrame):
                 )
                 group.add_row(row)
                 self._rows[cleaner.id] = row
+            if layer == LAYER_INVENTORY:
+                group.add_action(
+                    "🔎 Показать крупные файлы",
+                    self._show_large_files,
+                    "топ-50 на диске · только показ",
+                )
 
         self._sync_groups()
         self._update_hint()
@@ -750,6 +779,12 @@ class DeepCleanView(ctk.CTkFrame):
         self._invalidate_plan()
         self._sync_rows()
         self._update_summary()
+
+    def _show_large_files(self) -> None:
+        drive = self._get_drive() if self._get_drive is not None else None
+        LargeFilesDialog(
+            self, self._theme, drive=drive, on_log=self._on_log,
+        )
 
     def _sync_rows(self) -> None:
         for cleaner_id, row in self._rows.items():
