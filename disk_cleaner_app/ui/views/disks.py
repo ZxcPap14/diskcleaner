@@ -11,8 +11,10 @@ from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.services.disk_health import (
     format_disk_row,
     format_hours,
+    format_temperature,
     health_icon,
     list_disks,
+    smart_summary,
 )
 from disk_cleaner_app.services.elevation import is_admin
 from disk_cleaner_app.services.surface_scan import (
@@ -51,6 +53,8 @@ SCAN_SIZES = {
     "Весь диск": None,
 }
 
+AUTO_REFRESH_MS = 60_000
+
 
 class DisksView(ctk.CTkFrame):
     """Список физических дисков, SMART и чтение поверхности."""
@@ -70,6 +74,7 @@ class DisksView(ctk.CTkFrame):
         self._ui.start()
         self.configure(fg_color="transparent")
         self._build()
+        self._auto_job = self.after(AUTO_REFRESH_MS, self._auto_tick)
 
     # ── UI ───────────────────────────────────────────
 
@@ -122,6 +127,7 @@ class DisksView(ctk.CTkFrame):
 
         style_treeview("Disks", self._theme, row_height=30)
         tree_wrap = ctk.CTkFrame(table_card, fg_color="transparent", height=118)
+        self._tree_wrap = tree_wrap
         tree_wrap.pack(fill="x", padx=(10, 6), pady=(0, 12))
         tree_wrap.pack_propagate(False)
         self.tree = ttk.Treeview(
@@ -174,7 +180,7 @@ class DisksView(ctk.CTkFrame):
         ).pack(side="left")
 
         self.details = MDTextbox(
-            details_card, self._theme, height=96, font=FONT_MONO_SMALL,
+            details_card, self._theme, height=130, font=FONT_MONO_SMALL,
         )
         self.details.pack(fill="both", expand=True, padx=14, pady=(0, 12))
         self._set_details("Нажмите «Обновить», чтобы прочитать SMART-данные.")
@@ -314,6 +320,10 @@ class DisksView(ctk.CTkFrame):
             )
             self.empty_label.place(relx=0.5, rely=0.6, anchor="center")
 
+        visible_rows = max(1, min(3, len(disks)))
+        self.tree.configure(height=visible_rows)
+        self._tree_wrap.configure(height=visible_rows * 30 + 40)
+
         values = [
             f"{d.get('index', 0)} · {d.get('model', '—')}" for d in disks
         ]
@@ -383,22 +393,35 @@ class DisksView(ctk.CTkFrame):
     def _disk_details(self, disk: dict) -> str:
         temp = disk.get("temperature")
         wear = disk.get("wear")
+        wear_text = f"{wear}%" if isinstance(wear, int) and wear >= 0 else "—"
         code = disk.get("health", "?")
+        temp_line = format_temperature(temp)
         lines = [
             f"{health_icon(code)}  {disk.get('model', '—')}",
             f"Физический диск: PhysicalDrive{disk.get('index', 0)}   ·   "
             f"шина: {disk.get('bus') or '—'}   ·   тип: {disk.get('media') or '—'}",
             f"Объём: {format_bytes(int(disk.get('size') or 0))}   ·   "
             f"состояние: {code} ({disk.get('status') or '—'})",
-            f"Температура: {temp} °C   ·   наработка: {format_hours(disk.get('hours'))}"
-            if isinstance(temp, int) and temp > 0
-            else f"Температура: —   ·   наработка: {format_hours(disk.get('hours'))}",
-            f"Износ: {wear}%   ·   ошибки чтения/записи: "
+            f"Температура: {temp_line}   ·   "
+            f"наработка: {format_hours(disk.get('hours'))}",
+            f"Износ: {wear_text}   ·   ошибки чтения/записи: "
             f"{disk.get('read_errors') if disk.get('read_errors') is not None else '—'}"
             f" / "
             f"{disk.get('write_errors') if disk.get('write_errors') is not None else '—'}",
             f"Серийный номер: {disk.get('serial') or '—'}",
         ]
+        summary = smart_summary(disk)
+        if summary:
+            lines.append("")
+            lines.append(f"SMART: {summary}")
+        elif is_admin():
+            lines.append(
+                "Сырые SMART-атрибуты: диск не отдал ATA-данные (NVMe/USB)."
+            )
+        else:
+            lines.append(
+                "Сырые SMART-атрибуты: нужны права администратора (🛡️)."
+            )
         return "\n".join(lines)
 
     # ── Проверка поверхности ────────────────────────
@@ -522,6 +545,14 @@ class DisksView(ctk.CTkFrame):
 
     # ── Helpers ─────────────────────────────────────
 
+    def _auto_tick(self) -> None:
+        """Живая температура: раз в минуту, только пока вкладка видна."""
+        if (self.winfo_ismapped() and not self._is_loading
+                and not self._is_scanning
+                and self.tab_var.get().startswith("Диски")):
+            self.refresh()
+        self._auto_job = self.after(AUTO_REFRESH_MS, self._auto_tick)
+
     def _set_details(self, text: str) -> None:
         self.details.configure(state="normal")
         self.details.delete("1.0", "end")
@@ -550,6 +581,10 @@ class DisksView(ctk.CTkFrame):
         )
 
     def destroy(self) -> None:
+        try:
+            self.after_cancel(self._auto_job)
+        except Exception:
+            pass
         try:
             self._scan_cancel.set()
             self._ui.stop()
