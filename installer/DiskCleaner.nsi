@@ -1,7 +1,7 @@
 ﻿; DiskCleaner Pro — установщик NSIS 3.x
 ; Сборка: python build_installer.py
 ; Прямая компиляция:
-;   makensis /DAPP_VERSION=4.10.2 /DSOURCE_DIR=..\dist /DOUTPUT_FILE=..\dist\Setup.exe installer\DiskCleaner.nsi
+;   makensis /DAPP_VERSION=4.10.3 /DSOURCE_DIR=..\dist /DOUTPUT_FILE=..\dist\Setup.exe installer\DiskCleaner.nsi
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -12,9 +12,11 @@ ManifestDPIAware true
 RequestExecutionLevel user
 
 !include "MUI2.nsh"
+!include "WinVer.nsh"
+!include "x64.nsh"
 
 !ifndef APP_VERSION
-  !define APP_VERSION "4.10.2"
+  !define APP_VERSION "4.10.3"
 !endif
 !ifndef SOURCE_DIR
   !define SOURCE_DIR "..\dist"
@@ -126,6 +128,34 @@ SectionEnd
 
 ; ── Инициализация ─────────────────────────────────────
 Function .onInit
+  ; Установщик кладёт x64-exe, поэтому 32-битная Windows не подойдёт:
+  ; лучше остановиться здесь с понятным текстом, чем показать ошибку
+  ; «не является приложением Win32» после установки.
+  ${IfNot} ${AtLeastWin10}
+    IfSilent unsupported_os_silent
+    MessageBox MB_ICONSTOP|MB_OK \
+      "DiskCleaner Pro требует Windows 10 или 11 (64-бит).$\r$\n$\r$\nТекущая версия Windows не поддерживается."
+    Abort
+    unsupported_os_silent:
+      SetErrorLevel 2
+      Quit
+  ${EndIf}
+
+  ${IfNot} ${RunningX64}
+    ; На ARM64 32-битный установщик видит PROCESSOR_ARCHITEW6432=ARM64;
+    ; x64-сборка там работает через эмуляцию Windows 11.
+    ReadEnvStr $0 "PROCESSOR_ARCHITEW6432"
+    ${If} $0 != "ARM64"
+      IfSilent unsupported_arch_silent
+      MessageBox MB_ICONSTOP|MB_OK \
+        "DiskCleaner Pro требует 64-битную Windows 10 или 11.$\r$\n$\r$\n32-битная система не поддерживается."
+      Abort
+      unsupported_arch_silent:
+        SetErrorLevel 3
+        Quit
+    ${EndIf}
+  ${EndIf}
+
   SetShellVarContext current
   SetRegView 64
 FunctionEnd

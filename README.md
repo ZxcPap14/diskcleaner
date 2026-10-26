@@ -57,7 +57,7 @@ Windows-утилита для очистки диска в стиле CCleaner /
 
 ## Требования
 
-- Windows 10/11
+- Windows 10/11 (64-бит; на ARM64 работает через эмуляцию x64)
 - Python 3.12+ (для запуска из исходников)
 
 ## Установка (из исходников)
@@ -111,8 +111,8 @@ python build_installer.py --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 Скрипт соберёт exe, установщик и портативный архив:
 
 - `dist\DiskCleaner.exe` — портативная версия (один файл, запускается без установки);
-- `dist\DiskCleaner-Setup-4.10.2.exe` — установщик;
-- `dist\DiskCleaner-4.10.2-portable.zip` — exe + README + лицензия;
+- `dist\DiskCleaner-Setup-4.10.3.exe` — установщик;
+- `dist\DiskCleaner-4.10.3-portable.zip` — exe + README + лицензия;
 - `dist\SHA256SUMS.txt` — контрольные суммы.
 
 Установщик ставит приложение в профиль пользователя
@@ -123,7 +123,7 @@ python build_installer.py --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 Тихая установка и удаление:
 
 ```powershell
-.\DiskCleaner-Setup-4.10.2.exe /S /D=C:\Tools\DiskCleaner
+.\DiskCleaner-Setup-4.10.3.exe /S /D=C:\Tools\DiskCleaner
 & "$env:LOCALAPPDATA\Programs\DiskCleaner Pro\Uninstall.exe" /S
 ```
 
@@ -132,6 +132,44 @@ python build_installer.py --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 ```powershell
 python build_installer.py --uac-admin
 ```
+
+## Проверка сборки
+
+Собранный exe умеет проверять сам себя без запуска интерфейса:
+
+```powershell
+.\dist\DiskCleaner.exe --self-test
+```
+
+Проверяются Tk, импорт CustomTkinter/squarify, SQLite, запись в
+`%APPDATA%\DiskCleaner` и `%TEMP%`, наличие PowerShell и права
+администратора. Отчёт пишется в `%TEMP%\DiskCleaner-selftest.json`
+(UTF-8), код возврата 0 — критические проверки прошли. Тот же отчёт
+показывает `frozen: true`, то есть запущен именно собранный exe.
+
+Полная проверка установщика на чистой машине (тихая установка → self-test →
+удаление) — в PowerShell:
+
+```powershell
+.\scripts\verify_installer.ps1 -Setup .\dist\DiskCleaner-Setup-4.10.3.exe
+```
+
+Скрипт ставит приложение во временную папку, требует `frozen: true` и
+возвращает «4/4 VERIFY OK»; после проверки всё удаляется. Параметр
+`-KeepInstall` оставляет установку для ручного осмотра.
+
+Если есть сертификат подписи, exe и установщик можно подписать при сборке
+(нужен `signtool.exe` из Windows SDK):
+
+```powershell
+python build_installer.py --sign-cert <отпечаток-сертификата>
+```
+
+Без сертификата сборка честно предупреждает, что SmartScreen может показать
+предупреждение. Проверка совместимости: установщик требует Windows 10/11
+x64 (на ARM64 — эмуляция x64) и отказывается работать на 32-битной системе
+или Windows 7/8 с понятным сообщением; в тихом режиме возвращает код 2
+(версия ОС) или 3 (разрядность).
 
 ## Безопасность
 
@@ -154,12 +192,16 @@ python build_installer.py --uac-admin
 - Импорт настроек не доверяет файлу: неизвестные ключи и опасные пути
   пропускаются и перечисляются в отчёте об импорте.
 
-## Известные ограничения (v4.10.2)
+## Известные ограничения (v4.10.3)
 
 - UAC запрашивается кнопкой 🛡️ либо манифестом при сборке с `--uac-admin`;
   в обычной сборке приложение стартует без повышения прав.
 - exe и установщик не подписаны сертификатом: на другом ПК Windows SmartScreen
   может показать предупреждение. Сверяйте SHA-256 с `dist\SHA256SUMS.txt`.
+- Установщик поддерживает только Windows 10/11 x64: на 32-битной Windows
+  и Windows 7/8 он останавливается с объяснением (в тихом режиме — код 2
+  или 3). PyInstaller-сборка может дополнительно вызывать ложные
+  срабатывания антивирусов — подпись снижает, но не убирает этот риск.
 - Пакетное удаление по умолчанию использует `IFileOperation`, при сбое COM
   автоматически откатывается на `SHFileOperationW`; занятые файлы и очень
   длинные пути могут давать частичные отказы — они перечисляются в логе.

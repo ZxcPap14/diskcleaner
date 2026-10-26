@@ -8,6 +8,8 @@ CLI-режимы:
                                                  — только тихая очистка, без GUI
     python -m disk_cleaner_app --smart-clean --deep-safe --silent
                                                  — тихая deep-очистка слоем A
+    python -m disk_cleaner_app --self-test       — проверить сборку и записать
+                                                 отчёт в %TEMP% без запуска GUI
 """
 from __future__ import annotations
 
@@ -58,9 +60,18 @@ def main() -> None:
         "--silent", action="store_true",
         help="не запускать GUI (только с --smart-clean)",
     )
+    parser.add_argument(
+        "--self-test", action="store_true",
+        help="проверить сборку, записать отчёт в %%TEMP%% и выйти",
+    )
     args = parser.parse_args()
 
     _reconfigure_streams()
+
+    if args.self_test:
+        from disk_cleaner_app.selftest import run_self_test
+
+        raise SystemExit(run_self_test())
 
     if args.smart_clean:
         from disk_cleaner_app.services.auto_clean import DEEP_SAFE_MODE, SMART_MODE

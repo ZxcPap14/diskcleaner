@@ -32,12 +32,12 @@ jobs:
         run: >-
           python -m ruff check disk_cleaner_app/models disk_cleaner_app/services
           disk_cleaner_app/cleaners disk_cleaner_app/ui disk_cleaner_app/__main__.py
-          disk_cleaner_app/__init__.py build.py tests
+          disk_cleaner_app/selftest.py disk_cleaner_app/__init__.py build.py tests
 
       - name: Mypy
         run: >-
           python -m mypy disk_cleaner_app/models disk_cleaner_app/services
-          disk_cleaner_app/cleaners disk_cleaner_app/ui
+          disk_cleaner_app/cleaners disk_cleaner_app/ui disk_cleaner_app/selftest.py
           --ignore-missing-imports
 
       - name: Pytest
@@ -45,3 +45,27 @@ jobs:
 
       - name: Build exe
         run: python build.py
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Build installer
+        run: python build_installer.py --no-build
+
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path disk_cleaner_app\__init__.py `
+            -Pattern '__version__ = "([^"]+)"').Matches.Groups[1].Value
+          ./scripts/verify_installer.ps1 -Setup "dist\DiskCleaner-Setup-$version.exe"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiskCleaner-${{ github.sha }}
+          path: |
+            dist/DiskCleaner.exe
+            dist/DiskCleaner-Setup-*.exe
+            dist/DiskCleaner-*-portable.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

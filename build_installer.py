@@ -80,6 +80,46 @@ def nsis_environment(makensis: Path) -> dict[str, str]:
     return env
 
 
+def find_signtool(explicit: str | None) -> Path | None:
+    """Найти signtool.exe: аргумент, SIGNTOOL, PATH или Windows Kits."""
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+    env_path = os.environ.get("SIGNTOOL")
+    if env_path:
+        candidates.append(Path(env_path))
+    which = shutil.which("signtool")
+    if which:
+        candidates.append(Path(which))
+    for root in (
+        Path(r"C:\Program Files (x86)\Windows Kits\10\bin"),
+        Path(r"C:\Program Files\Windows Kits\10\bin"),
+    ):
+        if root.is_dir():
+            candidates += sorted(root.glob("*/x64/signtool.exe"), reverse=True)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def sign_file(path: Path, signtool: Path, cert: str, timestamp: str) -> None:
+    """Подписать файл сертификатом из хранилища и проверить подпись."""
+    cmd = [
+        str(signtool), "sign", "/sha1", cert, "/fd", "sha256",
+        "/tr", timestamp, "/td", "sha256", str(path),
+    ]
+    print(f"🔏  Подпись {path.name} ...")
+    result = subprocess.run(cmd, cwd=ROOT)
+    if result.returncode != 0:
+        raise SystemExit(f"signtool sign завершился с кодом {result.returncode}")
+    verify = subprocess.run(
+        [str(signtool), "verify", "/pa", "/v", str(path)], cwd=ROOT,
+    )
+    if verify.returncode != 0:
+        raise SystemExit(f"Подпись {path.name} не прошла проверку")
+
+
 def run_build(uac_admin: bool) -> None:
     cmd = [sys.executable, str(ROOT / "build.py")]
     if uac_admin:
@@ -159,6 +199,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="собрать exe с манифестом requireAdministrator",
     )
+    parser.add_argument(
+        "--sign-cert",
+        help="SHA-1 отпечаток сертификата для signtool (SmartScreen)",
+    )
+    parser.add_argument(
+        "--sign-tool",
+        help="путь к signtool.exe (по умолчанию ищется в PATH и Windows Kits)",
+    )
+    parser.add_argument(
+        "--timestamp-url",
+        default="http://timestamp.digicert.com",
+        help="сервер метки времени для подписи",
+    )
     args = parser.parse_args(argv)
 
     version = project_version()
@@ -171,12 +224,28 @@ def main(argv: list[str] | None = None) -> int:
     if not exe_path.is_file():
         raise SystemExit(f"Не найден {exe_path}. Запустите build.py.")
 
+    signtool: Path | None = None
+    if args.sign_cert:
+        signtool = find_signtool(args.sign_tool)
+        if signtool is None:
+            raise SystemExit(
+                "Не найден signtool.exe. Установите Windows SDK или укажите "
+                "--sign-tool / переменную SIGNTOOL."
+            )
+        print(f"🔏  signtool: {signtool}")
+        sign_file(exe_path, signtool, args.sign_cert, args.timestamp_url)
+    else:
+        print("ℹ️  Сертификат не указан: exe и установщик останутся неподписанными "
+              "(SmartScreen может предупредить).")
+
     makensis = find_makensis(args.makensis)
     print(f"🔧  NSIS: {makensis}")
     setup_path = DIST / f"DiskCleaner-Setup-{version}.exe"
     run_makensis(makensis, version, setup_path)
     if not setup_path.is_file():
         raise SystemExit(f"Установщик не создан: {setup_path}")
+    if signtool is not None:
+        sign_file(setup_path, signtool, args.sign_cert, args.timestamp_url)
 
     portable_path = make_portable(version)
     hashes = write_hashes([exe_path, setup_path, portable_path])
