@@ -4,6 +4,7 @@ from __future__ import annotations
 from disk_cleaner_app.services.history_filter import (
     filter_entries,
     format_details,
+    freed_by_month,
     parse_date,
     summarize_details,
     total_freed,
@@ -92,6 +93,30 @@ def test_format_details_lists_each_target() -> None:
 
 def test_total_freed() -> None:
     assert total_freed(ENTRIES) == 2560
+
+
+def test_freed_by_month_sums_and_sorts() -> None:
+    entries = [
+        {"date": "2026-10-02T10:00:00", "bytes_freed": 100},
+        {"date": "2025-12-31T23:59:00", "bytes_freed": 7},
+        {"date": "2026-10-24T12:00:00", "bytes_freed": 250},
+    ]
+
+    assert freed_by_month(entries) == [("2025-12", 7), ("2026-10", 350)]
+
+
+def test_freed_by_month_skips_bad_dates_and_missing_bytes() -> None:
+    entries = [
+        {"date": "", "bytes_freed": 100},
+        {"date": "не дата", "bytes_freed": 100},
+        {"date": "2026-10-24", "bytes_freed": None},
+    ]
+
+    assert freed_by_month(entries) == [("2026-10", 0)]
+
+
+def test_freed_by_month_empty() -> None:
+    assert freed_by_month([]) == []
 
 
 def test_filter_by_op_type() -> None:

@@ -140,3 +140,15 @@ def as_json_entry(entry: dict) -> dict[str, Any]:
     if details is not None and not isinstance(details, str):
         copy["details"] = json.dumps(details, ensure_ascii=False)
     return copy
+
+
+def freed_by_month(entries: list[dict]) -> list[tuple[str, int]]:
+    """Суммарное освобождённое место по месяцам («ГГГГ-ММ», по возрастанию)."""
+    totals: dict[str, int] = {}
+    for entry in entries:
+        month = str(entry.get("date", ""))[:7]
+        if len(month) == 7 and month[4] == "-":
+            totals[month] = totals.get(month, 0) + int(
+                entry.get("bytes_freed", 0) or 0
+            )
+    return sorted(totals.items())

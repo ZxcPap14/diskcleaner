@@ -12,6 +12,7 @@ from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.services.history_filter import (
     filter_entries,
     format_details,
+    freed_by_month,
     parse_date,
     summarize_details,
     total_freed,
@@ -138,7 +139,7 @@ class HistoryView(ctk.CTkFrame):
             "write", lambda *_: self._apply()
         )
 
-        # ── Таблица и детали ──────────────────────────
+        # ── Таблица ───────────────────────────────────
         table_card = MDCard(self, self._theme, tone="low")
         table_card.grid(row=2, column=0, sticky="nsew", pady=(0, SPACE_2))
 
@@ -167,8 +168,15 @@ class HistoryView(ctk.CTkFrame):
         self._table_scroll.pack(side="right", fill="y", padx=(0, 10), pady=(12, 2))
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
-        details_card = MDCard(self, self._theme, tone="low")
-        details_card.grid(row=3, column=0, sticky="ew")
+        # ── Детали и график (в одном ряду) ────────────
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.grid(row=3, column=0, sticky="ew")
+        bottom.grid_rowconfigure(0, weight=1)
+        bottom.grid_columnconfigure(0, weight=3)
+        bottom.grid_columnconfigure(1, weight=2)
+
+        details_card = MDCard(bottom, self._theme, tone="low")
+        details_card.grid(row=0, column=0, sticky="nsew")
 
         details_top = ctk.CTkFrame(details_card, fg_color="transparent")
         details_top.pack(fill="x", padx=14, pady=(10, 4))
@@ -183,10 +191,24 @@ class HistoryView(ctk.CTkFrame):
         self.details.pack(fill="x", padx=14, pady=(0, 8))
         self._set_details("Выберите запись, чтобы увидеть детали очистки.")
 
+        chart_card = MDCard(bottom, self._theme, tone="low")
+        chart_card.grid(row=0, column=1, sticky="nsew", padx=(SPACE_2, 0))
+
+        SectionTitle(
+            chart_card, self._theme, "Освобождено по месяцам",
+            "Сумма по записям текущего фильтра, последние 12 месяцев",
+        ).pack(fill="x", padx=14, pady=(12, 4))
+
+        self.chart = ctk.CTkCanvas(
+            chart_card, height=96, bg=self._theme.colors.SURFACE_LOW,
+            highlightthickness=0, bd=0,
+        )
+        self.chart.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        self.chart.bind("<Configure>", lambda e: self._draw_chart())
+
         self.status_label = MDLabel(
             self, self._theme, "", role="muted", font=FONT_CAPTION, anchor="w",
         )
-        self.grid_rowconfigure(4, weight=0)
         self.status_label.grid(row=4, column=0, sticky="ew", pady=(2, 0))
 
     # ── данные ───────────────────────────────────────────
@@ -263,6 +285,57 @@ class HistoryView(ctk.CTkFrame):
             )
         self.status_label.configure(text=text)
         self._set_details("Выберите запись, чтобы увидеть детали очистки.")
+        self._draw_chart()
+
+    def _draw_chart(self) -> None:
+        """Столбцы освобождённого места по месяцам для показанных записей."""
+        canvas = self.chart
+        canvas.delete("all")
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width < 40 or height < 40:
+            return
+
+        c = self._theme.colors
+        data = freed_by_month(self._shown)[-12:]
+        if not data:
+            canvas.create_text(
+                width / 2, height / 2, text="Нет данных за выбранный период",
+                fill=c.ON_SURFACE_VARIANT, font=FONT_CAPTION,
+            )
+            return
+
+        peak = max(value for _month, value in data) or 1
+        slot = width / len(data)
+        show_values = slot >= 46
+        top = 20 if show_values else 6
+        baseline = height - 16
+        bar_width = max(5.0, min(26.0, slot * 0.55))
+
+        for index, (month, value) in enumerate(data):
+            x = slot * (index + 0.5)
+            bar_height = (baseline - top) * (value / peak)
+            if bar_height > 0:
+                canvas.create_rectangle(
+                    x - bar_width / 2, baseline - bar_height,
+                    x + bar_width / 2, baseline,
+                    fill=c.PRIMARY, outline="",
+                )
+                if show_values:
+                    canvas.create_text(
+                        x, baseline - bar_height - 3, anchor="s",
+                        text=format_bytes(value), fill=c.ON_SURFACE_VARIANT,
+                        font=FONT_CAPTION,
+                    )
+            canvas.create_text(
+                x, baseline + 3, anchor="n",
+                text=f"{month[5:7]}.{month[2:4]}",
+                fill=c.ON_SURFACE_VARIANT, font=FONT_CAPTION,
+            )
+
+        canvas.create_line(
+            0, baseline, width, baseline, fill=c.OUTLINE_VARIANT,
+        )
 
     def _on_select(self, _event=None) -> None:
         selection = self.tree.selection()
@@ -326,6 +399,7 @@ class HistoryView(ctk.CTkFrame):
         self._table_scroll.configure(
             button_color=c.OUTLINE_VARIANT, button_hover_color=c.OUTLINE,
         )
+        self.chart.configure(bg=c.SURFACE_LOW)
         self._apply()
 
     def destroy(self) -> None:
