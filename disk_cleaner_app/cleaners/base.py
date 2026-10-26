@@ -316,6 +316,111 @@ def safe_rm_contents(path: Path, to_recycle: bool | None = None) -> bool:
     return ok
 
 
+def safe_rm_contents_aged(
+    path: Path, min_age_hours: int, to_recycle: bool | None = None
+) -> bool:
+    """Очистить содержимое папки, трогая только файлы старше ``min_age_hours``.
+
+    Возрастное обещание цели (``min_age_hours``) должно работать и при прямом
+    вызове ``clean()`` — как при планировании. Свежие файлы и структура папок
+    остаются на месте; junction/symlink не разворачиваются и не удаляются.
+    """
+    path = Path(path)
+    if not os.path.lexists(str(path)):
+        return True
+
+    cutoff = time.time() - max(0, int(min_age_hours)) * 3600
+    use_recycle = _resolve_to_recycle(to_recycle)
+
+    targets: list[str] = []
+    stack = [path]
+    while stack and not scan_cancelled():
+        current = stack.pop()
+        try:
+            with os.scandir(str(current)) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        for entry in entries:
+            if scan_cancelled():
+                break
+            child = Path(entry.path)
+            try:
+                if child.is_symlink() or is_junction(child):
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(child)
+                elif entry.stat().st_mtime <= cutoff:
+                    targets.append(str(child))
+            except OSError:
+                continue
+
+    if not targets:
+        return True
+
+    if not use_recycle:
+        ok = True
+        for target in targets:
+            try:
+                os.unlink(target)
+            except PermissionError:
+                try:
+                    os.chmod(target, stat.S_IWRITE)
+                    os.unlink(target)
+                except OSError:
+                    ok = False
+            except OSError:
+                ok = False
+        return ok
+
+    # Корзина — пакетно, одной операцией на пачку путей.
+    from disk_cleaner_app.services.batch_delete import delete_many
+
+    ok = True
+    for start in range(0, len(targets), 2000):
+        if scan_cancelled():
+            return False
+        chunk = targets[start:start + 2000]
+        result = delete_many(chunk, to_recycle=True)
+        if result.get("failed"):
+            ok = False
+    return ok
+
+
+def newest_mtime(path: Path) -> float | None:
+    """Самый свежий mtime файла внутри каталога (junction не разворачиваются).
+
+    ``None`` — папку не удалось прочитать целиком: состояние неизвестно,
+    вызывающий код обязан считать такую папку «свежей» и не удалять.
+    """
+    newest: float | None = None
+    stack = [Path(path)]
+    while stack:
+        if scan_cancelled():
+            return None
+        current = stack.pop()
+        try:
+            with os.scandir(str(current)) as it:
+                entries = list(it)
+        except (OSError, PermissionError):
+            return None
+        for entry in entries:
+            if scan_cancelled():
+                return None
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    child = Path(entry.path)
+                    if child.is_symlink() or is_junction(child):
+                        continue
+                    stack.append(child)
+                elif entry.is_file(follow_symlinks=False):
+                    mtime = entry.stat().st_mtime
+                    newest = mtime if newest is None else max(newest, mtime)
+            except (OSError, PermissionError):
+                continue
+    return newest if newest is not None else 0.0
+
+
 def _ps_quote(value: str) -> str:
     """Безопасно заключить строку в одинарные кавычки PowerShell."""
     return "'" + str(value).replace("'", "''") + "'"

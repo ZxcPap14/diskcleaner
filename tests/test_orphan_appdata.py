@@ -72,20 +72,24 @@ def test_clean_always_moves_to_recycle(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(orphans, "ROAMING_APPDATA", tmp_path / "Roaming")
     monkeypatch.setattr(orphans, "_installed_names", lambda: set())
 
-    calls: list[tuple[str, bool]] = []
+    import disk_cleaner_app.services.batch_delete as batch_mod
 
-    def fake_remove(path: Path, to_recycle: bool = False) -> bool:
-        calls.append((path.name, to_recycle))
-        return True
+    calls: list[tuple[list[str], bool]] = []
 
-    monkeypatch.setattr(orphans, "safe_remove", fake_remove)
+    def fake_delete_many(paths, to_recycle=True, use_ifile=True):
+        calls.append((list(paths), to_recycle))
+        return {"deleted": list(paths), "failed": []}
+
+    monkeypatch.setattr(batch_mod, "delete_many", fake_delete_many)
 
     cleaner = orphans.OrphanAppDataCleaner()
     status, note = cleaner.clean()
 
     assert status == "OK"
     assert "корзину" in note
-    assert calls == [("OldTool", True)]
+    # Одна пакетная операция на все папки, а не вызов на каждый путь.
+    assert len(calls) == 1 and calls[0][1] is True
+    assert calls[0][0] == [str(local / "OldTool")]
     # Слой D и «не рекомендуется»: по умолчанию цель не выбрана.
     assert cleaner.layer == LAYER_LEFTOVERS
     assert cleaner.recommended is False
@@ -98,9 +102,39 @@ def test_clean_reports_failure_when_remove_fails(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr(orphans, "LOCAL_APPDATA", local)
     monkeypatch.setattr(orphans, "ROAMING_APPDATA", tmp_path / "Roaming")
     monkeypatch.setattr(orphans, "_installed_names", lambda: set())
-    monkeypatch.setattr(orphans, "safe_remove", lambda path, to_recycle=False: False)
+
+    import disk_cleaner_app.services.batch_delete as batch_mod
+
+    monkeypatch.setattr(
+        batch_mod, "delete_many",
+        lambda paths, to_recycle=True, use_ifile=True: {
+            "deleted": [], "failed": list(paths)
+        },
+    )
 
     status, note = orphans.OrphanAppDataCleaner().clean()
 
     assert status == "ERR"
-    assert "занята" in note
+    assert "Не удалось" in note
+
+
+def test_affected_paths_rejects_fresh_files_inside_old_folder(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Папка старая по mtime, но файл внутри недавно менялся — не остаток."""
+    local = tmp_path / "Local"
+    active = local / "ActiveTool"
+    _make_old(active)
+    (active / "settings.json").write_text("{}")
+    # Запись файла обновила mtime каталога — состариваем только каталог,
+    # как в реальном сценарии «папка не трогалась, конфиг менялся».
+    stamp = time.time() - 120 * 86_400
+    os.utime(active, (stamp, stamp))
+
+    monkeypatch.setattr(orphans, "LOCAL_APPDATA", local)
+    monkeypatch.setattr(orphans, "ROAMING_APPDATA", tmp_path / "Roaming")
+    monkeypatch.setattr(orphans, "_installed_names", lambda: set())
+
+    paths = orphans.OrphanAppDataCleaner().affected_paths()
+
+    assert paths == ()

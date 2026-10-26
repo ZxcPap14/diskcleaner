@@ -16,6 +16,7 @@ from disk_cleaner_app.cleaners.base import (
     run_cmd,
     run_powershell,
     safe_rm_contents,
+    safe_rm_contents_aged,
 )
 from disk_cleaner_app.models.item import GROUP_SYSTEM, SafetyLevel
 from disk_cleaner_app.models.target import (
@@ -125,7 +126,7 @@ class WindowsTempCleaner(BaseCleaner):
         return get_dir_size(WINDIR / "Temp")
 
     def clean(self) -> tuple[str, str]:
-        ok = safe_rm_contents(WINDIR / "Temp", to_recycle=False)
+        ok = safe_rm_contents_aged(WINDIR / "Temp", self.min_age_hours, to_recycle=False)
         return ("OK", "Windows Temp очищен") if ok else ("ERR", "Ошибка очистки Windows Temp")
 
 
@@ -151,7 +152,7 @@ class UserTempCleaner(BaseCleaner):
         return get_dir_size(self._temp)
 
     def clean(self) -> tuple[str, str]:
-        ok = safe_rm_contents(self._temp, to_recycle=False)
+        ok = safe_rm_contents_aged(self._temp, self.min_age_hours, to_recycle=False)
         return ("OK", "Temp очищен") if ok else ("ERR", "Ошибка очистки Temp")
 
 
@@ -466,7 +467,9 @@ class CbsLogsCleaner(BaseCleaner):
     def clean(self) -> tuple[str, str]:
         ok = True
         for p in self.paths:
-            if p.exists() and not safe_rm_contents(p, to_recycle=False):
+            if p.exists() and not safe_rm_contents_aged(
+                p, self.min_age_hours, to_recycle=False
+            ):
                 ok = False
         return ("OK", "Логи очищены") if ok else ("ERR", "Часть логов занята или нет прав")
 

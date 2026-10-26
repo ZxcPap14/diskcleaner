@@ -263,3 +263,36 @@ def test_whitelist_covers_children(tmp_path: Path) -> None:
     plan = Planner(whitelist=[str(target / "sub")]).build([PathCleaner([target])])
 
     assert plan.targets[0].actions == []
+
+
+def test_remove_mode_skips_folder_with_fresh_files_inside(tmp_path: Path) -> None:
+    """Папка старая по mtime, но со свежим файлом внутри — не цель удаления."""
+    folder = tmp_path / "old"
+    stale = _write(folder / "a.bin")
+    _age(folder, 100)
+    _age(stale, 100)
+    _write(folder / "fresh.bin")
+    _age(folder, 100)  # запись файла обновила mtime корня — старим заново
+
+    plan = Planner().build(
+        [PathCleaner([folder], delete_mode="remove", min_age_hours=24)]
+    )
+    target = plan.targets[0]
+
+    assert target.actions == []
+    assert any("свежие файлы" in s for s in target.skipped)
+
+
+def test_remove_mode_with_age_keeps_fully_old_folder(tmp_path: Path) -> None:
+    folder = tmp_path / "old"
+    stale = _write(folder / "a.bin")
+    _age(folder, 100)
+    _age(stale, 100)
+
+    plan = Planner().build(
+        [PathCleaner([folder], delete_mode="remove", min_age_hours=24)]
+    )
+    target = plan.targets[0]
+
+    assert len(target.actions) == 1
+    assert target.actions[0].path == folder

@@ -65,12 +65,37 @@ def _strip_win_tail(path: str) -> str:
     return "\\".join(fixed)
 
 
+def _long_form(path: Path) -> Path:
+    """Развернуть 8.3-компоненты пути (C:\\PROGRA~1) в длинные имена.
+
+    normcase не сопоставляет «PROGRA~1» и «Program Files», поэтому без
+    разворота защита обходится короткой записью. GetLongPathNameW требует
+    существующий путь — для несуществующего возвращаем как есть. Вызов
+    делаем только для путей с «~»: иначе это лишний системный вызов на
+    каждый путь плана (до 200 000).
+    """
+    text = str(path)
+    if "~" not in text:
+        return path
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(1024)
+        length = ctypes.windll.kernel32.GetLongPathNameW(text, buf, len(buf))
+        if 0 < length < len(buf):
+            return Path(buf.value)
+    except Exception:
+        pass
+    return path
+
+
 def _norm(path: str | Path) -> Path:
-    """Нормализовать путь без обращения к диску."""
+    """Нормализовать путь без обращения к диску (8.3 — с обращением)."""
     try:
         p = Path(path).expanduser().absolute()
     except (OSError, ValueError):
         p = Path(str(path))
+    p = _long_form(p)
     text = os.path.normpath(_strip_win_tail(str(p)))
     return Path(os.path.normcase(text))
 

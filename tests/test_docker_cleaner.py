@@ -25,6 +25,37 @@ def test_docker_cleaner_is_not_a_path_target() -> None:
     assert DockerSystemCleaner().admin_required is False
 
 
+@pytest.fixture(autouse=True)
+def _reset_docker_size_cache():
+    """Кэш ответа daemon — классовое состояние, изолируем тесты."""
+    DockerSystemCleaner._size_cache = None
+    yield
+    DockerSystemCleaner._size_cache = None
+
+
+def test_size_is_cached_within_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_docker(args: list[str], timeout: int = 60) -> tuple[str, str]:
+        calls.append(args)
+        if args[0] == "info":
+            return ("27.3.1", "")
+        return ("Images\t1.02GB (52%)", "")
+
+    monkeypatch.setattr(
+        "disk_cleaner_app.cleaners.devtools._run_docker", fake_docker
+    )
+    cleaner = DockerSystemCleaner()
+
+    assert cleaner.get_size() == 1_020_000_000
+    assert cleaner.get_size() == 1_020_000_000
+    # Второй вызов берётся из кэша: daemon опрошен один раз (info + df).
+    assert len(calls) == 2
+
+    cleaner.clean()  # очистка сбрасывает кэш
+    assert DockerSystemCleaner._size_cache is None
+
+
 def test_size_is_zero_when_docker_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "disk_cleaner_app.cleaners.devtools._run_docker",

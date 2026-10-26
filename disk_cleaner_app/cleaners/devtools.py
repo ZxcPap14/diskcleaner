@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import (
@@ -242,26 +243,41 @@ class DockerSystemCleaner(BaseCleaner):
     loss = "Остановленные контейнеры исчезнут; образы и кэш скачаются/соберутся заново."
     restore_hint = "docker pull <образ> или повторная сборка"
 
+    # (время замера, размер, scan_error): daemon не опрашиваем чаще раза в 5 минут.
+    _size_cache: tuple[float, int, str] | None = None
+    _SIZE_TTL = 300.0
+
     def affected_paths(self) -> tuple[Path, ...]:
         return ()
 
     def get_size(self) -> int:
+        cached = DockerSystemCleaner._size_cache
+        if cached is not None and time.monotonic() - cached[0] < self._SIZE_TTL:
+            self.scan_error = cached[2]
+            return cached[1]
+
         self.scan_error = ""
         out, err = _run_docker(["info", "--format", "{{.ServerVersion}}"], timeout=20)
         if err:
             self.scan_error = "Docker не установлен или не запущен"
-            return 0
-        out, _ = _run_docker(
-            ["system", "df", "--format", "{{.Type}}\t{{.Reclaimable}}"], timeout=30
-        )
-        # Reclaimable вида «1.02GB (52%)»: берём абсолютную часть до скобок.
-        return sum(
-            _parse_docker_size(line.split("\t")[1].split(" (")[0])
-            for line in out.splitlines()
-            if "\t" in line
-        )
+            result = 0
+        else:
+            out, _ = _run_docker(
+                ["system", "df", "--format", "{{.Type}}\t{{.Reclaimable}}"],
+                timeout=30,
+            )
+            # Reclaimable вида «1.02GB (52%)»: берём абсолютную часть до скобок.
+            result = sum(
+                _parse_docker_size(line.split("\t")[1].split(" (")[0])
+                for line in out.splitlines()
+                if "\t" in line
+            )
+
+        DockerSystemCleaner._size_cache = (time.monotonic(), result, self.scan_error)
+        return result
 
     def clean(self) -> tuple[str, str]:
+        DockerSystemCleaner._size_cache = None
         out, err = _run_docker(["info", "--format", "{{.ServerVersion}}"], timeout=20)
         if err:
             return ("ERR", "Docker не установлен или не запущен")

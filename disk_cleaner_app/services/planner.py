@@ -19,6 +19,7 @@ from disk_cleaner_app.cleaners.base import (
     get_dir_size,
     get_path_size,
     is_junction,
+    newest_mtime,
     scan_cancelled,
 )
 from disk_cleaner_app.cleaners.safety import is_dangerous_target, is_whitelisted
@@ -314,6 +315,15 @@ class Planner:
                 if not _age_ok(path, cutoff):
                     plan.skipped.append(f"слишком новая папка: {path}")
                     continue
+                # mtime корня может быть старым при свежих файлах внутри:
+                # возрастной фильтр обязан смотреть на содержимое.
+                if cutoff is not None:
+                    newest = newest_mtime(path)
+                    if newest is None or newest > cutoff:
+                        plan.skipped.append(
+                            f"внутри есть свежие файлы: {path}"
+                        )
+                        continue
                 plan.actions.append(PlannedAction(
                     target_id=cleaner.id,
                     path=path,

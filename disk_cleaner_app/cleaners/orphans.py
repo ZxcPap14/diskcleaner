@@ -12,7 +12,11 @@ import re
 import time
 from pathlib import Path
 
-from disk_cleaner_app.cleaners.base import BaseCleaner, get_dir_size, safe_remove
+from disk_cleaner_app.cleaners.base import (
+    BaseCleaner,
+    get_dir_size,
+    newest_mtime,
+)
 from disk_cleaner_app.models.item import GROUP_APPS, SafetyLevel
 from disk_cleaner_app.models.target import LAYER_LEFTOVERS
 
@@ -144,6 +148,7 @@ class OrphanAppDataCleaner(BaseCleaner):
     def affected_paths(self) -> tuple[Path, ...]:
         installed = _installed_names()
         orphans: list[Path] = []
+        cutoff = time.time() - ORPHAN_MIN_AGE_DAYS * 86_400
         for root in (LOCAL_APPDATA, ROAMING_APPDATA):
             if not root.is_dir():
                 continue
@@ -160,6 +165,11 @@ class OrphanAppDataCleaner(BaseCleaner):
                     continue
                 age = _age_days(candidate)
                 if age is not None and age >= ORPHAN_MIN_AGE_DAYS:
+                    # Папка может быть старой по mtime, но активно
+                    # использоваться — смотрим на файлы внутри.
+                    newest = newest_mtime(candidate)
+                    if newest is None or newest > cutoff:
+                        continue
                     orphans.append(candidate)
         return tuple(orphans)
 
@@ -167,10 +177,20 @@ class OrphanAppDataCleaner(BaseCleaner):
         return sum(get_dir_size(p) for p in self.affected_paths())
 
     def clean(self) -> tuple[str, str]:
-        ok = True
-        for path in self.affected_paths():
-            if path.exists() and not safe_remove(path, to_recycle=True):
-                ok = False
-        return ("OK", "Остатки перемещены в корзину") if ok else (
-            "ERR", "Часть папок занята — повторите позже"
-        )
+        """Пакетно переместить остатки в корзину (одна операция оболочки)."""
+        from disk_cleaner_app.services.batch_delete import delete_many
+
+        paths = [str(p) for p in self.affected_paths() if p.exists()]
+        if not paths:
+            return ("OK", "Остатков не найдено")
+
+        result = delete_many(paths, to_recycle=True)
+        deleted = list(result.get("deleted", []))
+        failed = list(result.get("failed", []))
+        if result.get("aborted") and not deleted:
+            return ("ERR", "Операция прервана системой или пользователем")
+        if failed and not deleted:
+            return ("ERR", f"Не удалось переместить папки: {len(failed)} — заняты или нет прав")
+        if failed:
+            return ("OK", f"В корзину: {len(deleted)}; не удалось: {len(failed)}")
+        return ("OK", f"Остатки перемещены в корзину: {len(deleted)}")
