@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -26,6 +27,22 @@ TIMEOUT = 5.0
 
 GITHUB_API = "https://api.github.com/repos/{repo}/releases/latest"
 _REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+
+# Автопроверка при старте — не чаще раза в сутки.
+CHECK_INTERVAL = 24 * 60 * 60
+
+
+def should_check(
+    last_check: float | None,
+    now: float | None = None,
+    interval: float = CHECK_INTERVAL,
+) -> bool:
+    """Пора ли проверять обновления: нет отметки или она старше суток."""
+    try:
+        last = float(last_check or 0)
+    except (TypeError, ValueError):
+        return True
+    return (now if now is not None else time.time()) - last >= interval
 
 
 def resolve_source(value: str | None) -> str:

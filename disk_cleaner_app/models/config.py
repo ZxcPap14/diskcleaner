@@ -38,6 +38,8 @@ DEFAULT_CONFIG: dict = {
     # Ключи есть в дефолте, иначе не попадают в экспорт настроек.
     "tray_enabled": False,
     "start_minimized": False,
+    # Время последней тихой проверки обновлений (epoch), см. services/updater.py.
+    "update_last_check": None,
 }
 
 _VALID_THEMES = ("dark", "light", "system")

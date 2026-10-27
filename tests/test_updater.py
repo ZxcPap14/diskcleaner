@@ -175,6 +175,21 @@ def test_github_without_releases_message() -> None:
     assert "нет опубликованных релизов" in result["message"]
 
 
+def test_should_check_when_never_checked() -> None:
+    assert updater.should_check(None) is True
+    assert updater.should_check(0) is True
+
+
+def test_should_check_skips_recent_check() -> None:
+    now = 1_000_000.0
+    assert updater.should_check(now - 3600, now=now) is False
+    assert updater.should_check(now - updater.CHECK_INTERVAL, now=now) is True
+
+
+def test_should_check_treats_garbage_as_never_checked() -> None:
+    assert updater.should_check("garbage") is True
+
+
 def test_unreachable_github_host_is_network_error() -> None:
     result = updater.check_for_updates(
         "4.19.0", "http://127.0.0.1:1/repos/x/y/releases/latest", timeout=1.0

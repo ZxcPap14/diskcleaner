@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from tkinter import messagebox
 from typing import TYPE_CHECKING
@@ -90,6 +91,8 @@ class MainWindow:
         if (start_minimized and bool(self.config.get("start_minimized", False))
                 and self.tray is not None and self.tray.running):
             self.root.withdraw()
+
+        self._auto_check_updates()
 
     # ── трей ─────────────────────────────────────────
 
@@ -558,6 +561,41 @@ class MainWindow:
             self._ui.post(self.statusbar.log, result["message"])
 
         threading.Thread(target=worker, daemon=True, name="update-check").start()
+
+    def _auto_check_updates(self) -> None:
+        """Тихая проверка обновлений при старте: не чаще раза в сутки.
+
+        Ошибки сети не показываем и отметку не ставим, чтобы офлайн-машина
+        просто повторила попытку при следующем запуске.
+        """
+        import threading
+
+        from disk_cleaner_app.services.updater import (
+            STATUS_AVAILABLE,
+            STATUS_UP_TO_DATE,
+            check_for_updates,
+            should_check,
+        )
+
+        if not should_check(self.config.get("update_last_check")):
+            return
+
+        def worker() -> None:
+            result = check_for_updates(
+                __version__, self.config.get("update_source")
+            )
+            if result["status"] in (STATUS_AVAILABLE, STATUS_UP_TO_DATE):
+                self._ui.post(self.config.set, "update_last_check", time.time())
+            if result["status"] != STATUS_AVAILABLE:
+                return
+            settings = self.views.get("settings")
+            if settings is not None:
+                self._ui.post(settings.show_update_result, result)
+            hint = f"⬆️  {result['message']} Настройки → Обновления."
+            self._ui.post(self.statusbar.log, hint)
+            self._ui.post(self.statusbar.set_status, hint)
+
+        threading.Thread(target=worker, daemon=True, name="update-autocheck").start()
 
     def _clear_history(self) -> None:
         try:
