@@ -15,6 +15,11 @@ from disk_cleaner_app.cleaners.base import (
 from disk_cleaner_app.cleaners.browsers import BROWSER_CLEANERS
 from disk_cleaner_app.cleaners.devtools import DEVTOOLS_CLEANERS
 from disk_cleaner_app.cleaners.discover import auto_discover_items
+from disk_cleaner_app.cleaners.leftovers import (
+    BrokenShortcutsCleaner,
+    EmptyFoldersCleaner,
+)
+from disk_cleaner_app.cleaners.msi_orphans import MsiOrphanCleaner
 from disk_cleaner_app.cleaners.orphans import OrphanAppDataCleaner
 from disk_cleaner_app.cleaners.safety import validate_custom_path
 from disk_cleaner_app.cleaners.system import SYSTEM_CLEANERS
@@ -97,7 +102,8 @@ class CleanerRegistry:
         self._builtin_classes: list[type[BaseCleaner]] = (
             SYSTEM_CLEANERS + UWP_CLEANERS + BROWSER_CLEANERS +
             DEVTOOLS_CLEANERS + APP_CLEANERS + AIML_CLEANERS +
-            [OrphanAppDataCleaner]
+            [OrphanAppDataCleaner, MsiOrphanCleaner,
+             EmptyFoldersCleaner, BrokenShortcutsCleaner]
         )
 
     def get_all(self, include_auto: bool = True) -> list[BaseCleaner]:

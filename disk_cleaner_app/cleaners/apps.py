@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import BaseCleaner, get_dir_size, safe_rm_contents
-from disk_cleaner_app.models.item import GROUP_APPS, SafetyLevel
+from disk_cleaner_app.models.item import GROUP_APPS, SafetyLevel, format_bytes
 from disk_cleaner_app.models.target import LAYER_COMPONENTS, LAYER_SAFE
+from disk_cleaner_app.services import wsl_compact
+from disk_cleaner_app.services.elevation import is_admin
 
 LOCAL = Path.home() / "AppData" / "Local"
 ROAMING = Path.home() / "AppData" / "Roaming"
@@ -348,27 +350,30 @@ class JavaCacheCleaner(BaseCleaner):
 
 
 class WSLVhdxInfoCleaner(BaseCleaner):
-    """Обнаружение vhdx-дисков WSL: только подсказка, файлы не удаляются."""
+    """Сжатие vhdx-дисков WSL2/Docker: данные внутри дистрибутива сохраняются."""
 
     id = "wsl_vhdx"
-    name = "🐧 WSL: виртуальные диски (vhdx)"
+    name = "🐧 WSL: сжатие виртуальных дисков"
     group = GROUP_APPS
     description = (
-        "Обнаружение ext4.vhdx дистрибутивов WSL2. "
-        "Файлы не удаляются — только подсказка по сжатию."
+        "wsl --shutdown + diskpart compact vdisk для ext4.vhdx WSL2 и Docker. "
+        "Образ не удаляется, лишние блоки возвращаются хосту."
     )
-    safety = SafetyLevel.ADVANCED
+    safety = SafetyLevel.CAUTION
     layer = LAYER_COMPONENTS
+    admin_required = True
     recommended = False
-    delete_mode = "remove"
     why = (
-        "vhdx WSL2 растёт, но не сжимается сам. Освободить место можно командой "
-        "wsl --shutdown + Optimize-VHD (или diskpart compact vdisk)."
+        "vhdx растёт, но не сжимается сам: после удаления файлов внутри WSL "
+        "место на хосте остаётся занятым."
     )
-    loss = "Ничего не удаляется; цель только показывает размер vhdx."
-    restore_hint = "wsl --shutdown; Optimize-VHD -Path <vhdx> -Mode Full"
+    loss = (
+        "Ничего не удаляется. WSL и Docker Desktop будут остановлены на время "
+        "сжатия (от минуты до получаса в зависимости от размера)."
+    )
+    restore_hint = "Откат не нужен: данные внутри дистрибутива не меняются."
 
-    def affected_paths(self) -> tuple[Path, ...]:
+    def _vhdx(self) -> tuple[Path, ...]:
         base = LOCAL / "Packages"
         hits: list[Path] = []
         if base.exists():
@@ -384,14 +389,27 @@ class WSLVhdxInfoCleaner(BaseCleaner):
                 hits.append(candidate)
         return tuple(hits)
 
+    def affected_paths(self) -> tuple[Path, ...]:
+        # Командная цель: удалять пути движком нельзя, только сжимать.
+        return ()
+
     def get_size(self) -> int:
-        return sum(p.stat().st_size for p in self.affected_paths())
+        return sum(wsl_compact.vhdx_size(p) for p in self._vhdx())
 
     def clean(self) -> tuple[str, str]:
+        paths = self._vhdx()
+        if not paths:
+            return ("SKIP", "Образы WSL/Docker не найдены.")
+        if not is_admin():
+            return ("ERR", "Нужны права администратора: сжатие выполняет diskpart.")
+        freed, lines = wsl_compact.compact_paths(list(paths))
+        details = "; ".join(lines)
+        if freed > 0:
+            return ("OK", f"Освобождено {format_bytes(freed)}. {details}")
         return (
-            "SKIP",
-            "WSL vhdx не удаляется: wsl --shutdown, затем Optimize-VHD "
-            "(см. подсказку восстановления).",
+            "OK",
+            f"Сжатие выполнено, но размер не уменьшился (данные внутри образа "
+            f"занимают всё место). {details}",
         )
 
 

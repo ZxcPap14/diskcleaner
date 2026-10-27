@@ -47,6 +47,9 @@ _SAFE_SYSTEM_SUBDIRS = (
     / "Microsoft" / "Windows" / "WER",
 )
 
+# Каталог установщика: файлы MSI/MSP внутри него — отдельный разрешённый случай.
+_INSTALLER_DIR = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Installer"
+
 
 def _strip_win_tail(path: str) -> str:
     """Убрать хвостовые точки и пробелы из компонентов пути.
@@ -183,6 +186,11 @@ def is_dangerous_target(path: str | Path) -> bool:
     for safe in _SAFE_SYSTEM_SUBDIRS:
         if _is_within(p, _norm(safe)):
             return False
+
+    # Установщики MSI/MSP: цель сверяет их с реестром и отправляет в корзину.
+    # Сам каталог Installer и всё остальное в нём по-прежнему защищены.
+    if p.parent == _norm(_INSTALLER_DIR) and p.suffix.lower() in (".msi", ".msp"):
+        return False
 
     for root in _PROTECTED_SYSTEM:
         root_n = _norm(root)

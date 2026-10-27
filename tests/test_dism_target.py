@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from disk_cleaner_app.cleaners.system import DismCleanupCleaner
+from disk_cleaner_app.cleaners.system import DismCleanupCleaner, store_summary
 from disk_cleaner_app.models.target import LAYER_SYSTEM
 
 MODULE = "disk_cleaner_app.cleaners.system"
@@ -36,6 +36,9 @@ def test_clean_ok(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
     def fake_run_tool(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
         calls.append(args)
+        if "/AnalyzeComponentStore" in args:
+            return (0, "Хранилище компонентов : 7.42 GB\n"
+                       "Количество пакетов, подлежащих очистке : 3\n", "")
         return (0, "Operazione completata.", "")
 
     monkeypatch.setattr(MODULE + ".is_admin", lambda: True)
@@ -43,9 +46,42 @@ def test_clean_ok(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     status, detail = DismCleanupCleaner().clean()
 
     assert status == "OK"
-    assert calls[0][:4] == ["dism", "/Online", "/Cleanup-Image", "/StartComponentCleanup"]
+    # Сначала анализ «сколько вернётся», потом сама очистка.
+    assert "/AnalyzeComponentStore" in calls[0]
+    assert calls[1][:4] == ["dism", "/Online", "/Cleanup-Image", "/StartComponentCleanup"]
     assert timeout_disallowed(calls) is False
     assert "WinSxS" in detail
+    assert "7.42 GB" in detail
+
+
+def test_analyze_failure_is_not_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run_tool(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
+        if "/AnalyzeComponentStore" in args:
+            return (87, "", "ошибка 0x800f081f")
+        return (0, "готово", "")
+
+    monkeypatch.setattr(MODULE + ".is_admin", lambda: True)
+    monkeypatch.setattr(MODULE + ".run_tool", fake_run_tool)
+    status, detail = DismCleanupCleaner().clean()
+
+    assert status == "OK"
+    assert "Было:" not in detail
+
+
+def test_store_summary_keeps_report_lines() -> None:
+    text = (
+        "Deployment Image Servicing and Management tool\n"
+        "\n"
+        "Actual Size of Component Store : 7.42 GB\n"
+        "Shared with Windows : 6.80 GB\n"
+        "\n"
+        "The operation completed successfully.\n"
+    )
+    summary = store_summary(text)
+
+    assert "Actual Size of Component Store" in summary
+    assert "Shared with Windows" in summary
+    assert "Deployment Image" not in summary
 
 
 def timeout_disallowed(calls: list[list[str]]) -> bool:

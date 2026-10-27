@@ -62,20 +62,32 @@ def test_java_cache_under_locallow(tmp_path: Path, monkeypatch) -> None:
     assert cleaner.clean()[0] == "OK"
 
 
-def test_wsl_vhdx_is_detection_only(tmp_path: Path, monkeypatch) -> None:
+def test_wsl_vhdx_compacts_instead_of_deleting(tmp_path: Path, monkeypatch) -> None:
     distro = tmp_path / "Packages" / "CanonicalGroupLimited.Ubuntu_123"
     state = distro / "LocalState"
     state.mkdir(parents=True)
     (state / "ext4.vhdx").write_bytes(b"v" * 4096)
     (tmp_path / "Packages" / "SomeOtherApp").mkdir()
     monkeypatch.setattr("disk_cleaner_app.cleaners.apps.LOCAL", tmp_path)
+    monkeypatch.setattr("disk_cleaner_app.cleaners.apps.is_admin", lambda: True)
+    calls: list[list[Path]] = []
+
+    def fake_compact(paths: list[Path]) -> tuple[int, list[str]]:
+        calls.append(paths)
+        return 4096, [f"{paths[0].name}: сжато"]
+
+    monkeypatch.setattr(
+        "disk_cleaner_app.cleaners.apps.wsl_compact.compact_paths", fake_compact
+    )
     cleaner = WSLVhdxInfoCleaner()
 
-    assert cleaner.affected_paths() == (state / "ext4.vhdx",)
+    # Командная цель: движок не получает путей и ничего не удаляет.
+    assert cleaner.affected_paths() == ()
     assert cleaner.get_size() == 4096
 
     status, details = cleaner.clean()
 
-    assert status == "SKIP"
-    assert "Optimize-VHD" in details
+    assert status == "OK"
+    assert calls == [[state / "ext4.vhdx"]]
     assert (state / "ext4.vhdx").exists()
+    assert "4.0 КБ" in details

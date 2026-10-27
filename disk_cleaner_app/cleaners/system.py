@@ -20,7 +20,6 @@ from disk_cleaner_app.cleaners.base import (
 )
 from disk_cleaner_app.models.item import GROUP_SYSTEM, SafetyLevel
 from disk_cleaner_app.models.target import (
-    LAYER_INVENTORY,
     LAYER_SAFE,
     LAYER_SYSTEM,
 )
@@ -563,6 +562,19 @@ def _first_error_line(out: str, err: str) -> str:
     return ""
 
 
+def store_summary(out: str) -> str:
+    """Сводка ``AnalyzeComponentStore`` без разбора чисел.
+
+    Текст DISM локализован, поэтому берём строки «ключ: значение»
+    как есть — это отчёт Windows, а не наша арифметика.
+    """
+    lines = [
+        line.strip() for line in out.splitlines()
+        if ":" in line and any(ch.isdigit() for ch in line)
+    ]
+    return " · ".join(lines[:8])
+
+
 class DismCleanupCleaner(BaseCleaner):
     """WinSxS: StartComponentCleanup без /ResetBase.
 
@@ -587,14 +599,28 @@ class DismCleanupCleaner(BaseCleaner):
     restore_hint = "Без /ResetBase удаление самих обновлений остаётся доступным."
 
     TIMEOUT = 900  # 15 минут: DISM нельзя прерывать посреди работы.
+    ANALYZE_TIMEOUT = 180
 
     def get_size(self) -> int:
         # Освобождаемое место заранее неизвестно — считаем только по дельте тома.
         return 0
 
+    def analyze(self) -> str:
+        """Сколько реально можно вернуть: отчёт AnalyzeComponentStore.
+
+        Подсказка, а не условие: без прав или на урезанном образе DISM
+        ответит ошибкой — тогда просто не показываем сводку.
+        """
+        rc, out, _err = run_tool(
+            ["dism", "/Online", "/Cleanup-Image", "/AnalyzeComponentStore"],
+            timeout=self.ANALYZE_TIMEOUT,
+        )
+        return store_summary(out) if rc == 0 else ""
+
     def clean(self) -> tuple[str, str]:
         if not is_admin():
             return ("ERR", "Нужны права администратора.")
+        summary = self.analyze()
         rc, out, err = run_tool(
             [
                 "dism", "/Online", "/Cleanup-Image",
@@ -609,7 +635,10 @@ class DismCleanupCleaner(BaseCleaner):
                 "Повторите позже, когда система свободна.",
             )
         if rc == 0:
-            return ("OK", "Заменные компоненты WinSxS удалены (место — по дельте тома).")
+            detail = "Заменные компоненты WinSxS удалены (место — по дельте тома)."
+            if summary:
+                detail += f" Было: {summary}"
+            return ("OK", detail)
         problem = _first_error_line(out, err)
         detail = f"DISM завершился с кодом {rc}."
         if problem:
@@ -755,16 +784,22 @@ class UpdateLeftoversCleaner(BaseCleaner):
     """
 
     id = "update_leftovers"
-    name = "📦 Остатки обновления Windows (только показ)"
+    name = "📦 Остатки обновления Windows (штатная очистка)"
     group = GROUP_SYSTEM
     description = "Windows.old, $WINDOWS.~BT, $WinREAgent, ESD\\Download"
     safety = SafetyLevel.CAUTION
-    layer = LAYER_INVENTORY
-    admin_required = True
+    layer = LAYER_SYSTEM
+    admin_required = False
     recommended = False
     why = "Нужны для отката обновления Windows (обычно до 10 дней)."
-    loss = "Ручное удаление ломает возможность отката; Windows удалит их сам."
-    restore_hint = "Штатное удаление: Параметры → Система → Память → Временные файлы."
+    loss = (
+        "После удаления вернуться к предыдущей версии Windows будет нельзя. "
+        "Удаляет сама Windows — мы только открываем её очистку."
+    )
+    restore_hint = (
+        "Параметры → Система → Память → Временные файлы, "
+        "пункт «Предыдущие версии Windows»."
+    )
 
     paths = (
         Path(SYSTEM_VOLUME) / "Windows.old",
@@ -774,20 +809,39 @@ class UpdateLeftoversCleaner(BaseCleaner):
     )
 
     def affected_paths(self) -> tuple[Path, ...]:
-        return tuple(p for p in self.paths if os.path.lexists(str(p)))
+        # Командная цель: движок не должен удалять эти пути сам.
+        return ()
 
     def get_size(self) -> int:
         return sum(get_dir_size(p) for p in self.paths if p.exists())
 
-    @property
-    def is_actionable(self) -> bool:
-        return False
+    def rollback_days_left(self) -> int | None:
+        """Сколько дней ещё доступен откат на прошлую версию Windows."""
+        old = self.paths[0]
+        try:
+            age_days = (time.time() - old.stat().st_mtime) / 86400
+        except OSError:
+            return None
+        return max(0, int(10 - age_days))
 
     def clean(self) -> tuple[str, str]:
+        if self.get_size() == 0:
+            return ("SKIP", "Остатков обновления нет.")
+        try:
+            subprocess.Popen(
+                ["cleanmgr", "/d", SYSTEM_VOLUME],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except OSError as e:
+            return (
+                "ERR",
+                f"Не удалось открыть очистку Windows: {e}. {self.restore_hint}",
+            )
         return (
-            "SKIP",
-            "Слой E: только показ. Удалите штатными средствами Windows — "
-            + self.restore_hint,
+            "OK",
+            "Открыта штатная очистка Windows. Отметьте «Предыдущие версии "
+            "Windows» (или «Временные файлы Windows», если пункта нет) и "
+            "подтвердите — удаляет сама Windows.",
         )
 
 

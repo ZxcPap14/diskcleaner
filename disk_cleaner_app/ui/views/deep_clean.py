@@ -691,7 +691,8 @@ class DeepCleanView(ctk.CTkFrame):
 
         for layer in LAYERS:
             cleaners = [c for c in self._cleaners if c.layer == layer]
-            if not cleaners:
+            # Слой E может остаться без целей: карточка нужна ради «крупных файлов».
+            if not cleaners and layer != LAYER_INVENTORY:
                 continue
             group = _LayerGroup(self.list, self._theme, layer, self._toggle_layer)
             group.pack(fill="x", padx=2, pady=(2, 0))
