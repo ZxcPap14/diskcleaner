@@ -98,7 +98,8 @@ def check_for_updates(
     if not latest or not parse_version(latest):
         return _result(STATUS_ERROR, "В ответе нет номера версии.")
     latest = str(latest)
-    page = str(payload.get("url") or payload.get("html_url") or url)
+    # html_url — человеческая страница релиза, url у GitHub ведёт в API.
+    page = str(payload.get("html_url") or payload.get("url") or url)
 
     if is_newer(latest, current_version):
         return _result(

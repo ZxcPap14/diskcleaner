@@ -113,6 +113,19 @@ def test_github_style_tag_is_understood() -> None:
     assert result["url"] == "https://x/release"
 
 
+def test_human_page_wins_over_api_url() -> None:
+    """У GitHub `url` — адрес API, ссылку в UI берём из `html_url`."""
+    payload = {
+        "tag_name": "v4.22.0",
+        "url": "https://api.github.com/repos/x/y/releases/1",
+        "html_url": "https://github.com/x/y/releases/tag/v4.22.0",
+    }
+    with manifest_server(payload) as url:
+        result = updater.check_for_updates("4.21.1", url)
+
+    assert result["url"] == "https://github.com/x/y/releases/tag/v4.22.0"
+
+
 def test_broken_json_is_error() -> None:
     with manifest_server(b"not json at all") as url:
         result = updater.check_for_updates("4.19.0", url)
