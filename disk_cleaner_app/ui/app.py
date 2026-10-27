@@ -308,6 +308,7 @@ class MainWindow:
             config_exporter=self._export_config,
             config_importer=self._import_config,
             on_autostart_change=self._change_autostart,
+            on_check_updates=self._check_updates,
             report_exporter=self._export_report,
         )
 
@@ -513,6 +514,22 @@ class MainWindow:
         _ok, message = set_autostart(enabled)
         self.statusbar.log(message)
         return message
+
+    def _check_updates(self, url: str) -> None:
+        """Проверить обновления в фоне; сеть не должна вешать окно."""
+        import threading
+
+        from disk_cleaner_app import __version__
+        from disk_cleaner_app.services.updater import check_for_updates
+
+        def worker() -> None:
+            result = check_for_updates(__version__, url)
+            settings = self.views.get("settings")
+            if settings is not None:
+                self._ui.post(settings.show_update_result, result)
+            self._ui.post(self.statusbar.log, result["message"])
+
+        threading.Thread(target=worker, daemon=True, name="update-check").start()
 
     def _clear_history(self) -> None:
         try:

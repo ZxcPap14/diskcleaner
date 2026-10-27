@@ -69,6 +69,7 @@ class SettingsView(MDScrollArea):
                  config_importer: Callable[[Path], dict] | None = None,
                  report_exporter: Callable[[str, Path], Path] | None = None,
                  on_autostart_change: Callable[[bool], str] | None = None,
+                 on_check_updates: Callable[[str], None] | None = None,
                  **kwargs):
         super().__init__(parent, theme, **kwargs)
         self._theme = theme
@@ -85,6 +86,7 @@ class SettingsView(MDScrollArea):
         self._config_importer = config_importer
         self._report_exporter = report_exporter
         self._on_autostart_change = on_autostart_change
+        self._on_check_updates = on_check_updates
         self._rules: list[dict] = []
         self._build()
 
@@ -107,6 +109,7 @@ class SettingsView(MDScrollArea):
         self._build_whitelist()
         self._build_schedule()
         self._build_backup()
+        self._build_updates()
 
     def _section(self, title: str, subtitle: str, icon: str = "") -> MDCard:
         card = MDCard(self, self._theme, tone="low")
@@ -368,6 +371,96 @@ class SettingsView(MDScrollArea):
         if message and not message.startswith("Автозапуск включён"):
             # Неудачу показываем явно; успех и так виден по положению тумблера.
             messagebox.showwarning("Автозапуск", message)
+
+    def _build_updates(self) -> None:
+        """Карточка «Обновления»: адрес манифеста и проверка (4.20.0)."""
+        card = self._section(
+            "Обновления",
+            "Сравнение установленной версии с JSON-манифестом по вашему адресу",
+            icon="⬆",
+        )
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=(6, 8))
+        text = ctk.CTkFrame(row, fg_color="transparent")
+        text.pack(side="left", fill="x", expand=True)
+        MDLabel(
+            text, self._theme, "Адрес манифеста", role="on_surface",
+            font=FONT_BODY, anchor="w",
+        ).pack(anchor="w")
+        MDLabel(
+            text, self._theme,
+            "JSON вида {\"version\": \"4.21.0\", \"url\": \"https://…\"}. "
+            "Пустой адрес выключает проверку; сеть не используется без нажатия.",
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=620,
+        ).pack(anchor="w")
+
+        self.update_url_var = ctk.StringVar(
+            value=str(self._config_getter("update_url", ""))
+        )
+        self.update_entry = MDEntry(
+            row, self._theme, textvariable=self.update_url_var, width=300,
+        )
+        self.update_entry.pack(side="right", padx=(12, 0))
+        for event in ("<Return>", "<FocusOut>"):
+            try:
+                self.update_entry.bind(event, lambda _e: self._save_update_url())
+            except AttributeError:
+                pass
+
+        action_row = ctk.CTkFrame(card, fg_color="transparent")
+        action_row.pack(fill="x", padx=18, pady=(0, 14))
+        self.update_result = MDLabel(
+            action_row, self._theme, "", role="muted",
+            font=FONT_CAPTION, anchor="w", justify="left", wraplength=520,
+        )
+        self.update_result.pack(side="left", fill="x", expand=True)
+        MDButton(
+            action_row, self._theme, "Проверить обновления",
+            command=self._run_update_check, kind="tonal", width=180,
+        ).pack(side="right", padx=(12, 0))
+
+    def _save_update_url(self) -> None:
+        url = self.update_url_var.get().strip()
+        self._config_saver("update_url", url)
+
+    def _run_update_check(self) -> None:
+        """Спросить сервер; сеть — в фоне, результат придёт в show_update_result."""
+        self._save_update_url()
+        url = self.update_url_var.get().strip()
+        if not url:
+            self.show_update_result({
+                "status": "disabled",
+                "message": "Задайте адрес манифеста — проверка выключена.",
+            })
+            return
+        self.show_update_result(
+            {"status": "checking", "message": "Проверяю обновления…"}
+        )
+        if self._on_check_updates is not None:
+            self._on_check_updates(url)
+            return
+        from disk_cleaner_app import __version__
+        from disk_cleaner_app.services.updater import check_for_updates
+
+        self.show_update_result(check_for_updates(__version__, url))
+
+    def show_update_result(self, result: dict) -> None:
+        """Показать итог проверки; вызывается из UI-потока."""
+        status = str(result.get("status", ""))
+        role = {
+            "available": "success",
+            "up-to-date": "success",
+            "error": "error",
+            "checking": "muted",
+        }.get(status, "muted")
+        message = str(result.get("message", ""))
+        url = result.get("url")
+        if status == "available" and url:
+            message = f"{message} Страница: {url}"
+        self.update_result.configure(text=message)
+        self.update_result.set_role(role)
 
     def _divider(self, parent) -> None:
         ctk.CTkFrame(
