@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import customtkinter as ctk
 
-from disk_cleaner_app.ui.assets import FONT_CAPTION, RADIUS_FULL, SIDEBAR_WIDTH
+from disk_cleaner_app.ui.assets import FONT_SMALL, RADIUS_SM, SIDEBAR_WIDTH
 from disk_cleaner_app.ui.theme import ThemeManager
 
 
@@ -38,11 +38,16 @@ class _NavItem(ctk.CTkFrame):
         self.pack_propagate(False)
 
         self._pill = ctk.CTkFrame(
-            self, width=54, height=26, corner_radius=RADIUS_FULL,
+            self, width=40, height=28, corner_radius=RADIUS_SM,
             fg_color="transparent",
         )
         self._pill.pack(pady=(3, 0))
         self._pill.pack_propagate(False)
+        # Индикатор активного раздела — акцентная полоска слева, как в WinUI.
+        self._bar = ctk.CTkFrame(
+            self, width=3, corner_radius=2, fg_color="transparent",
+        )
+        self._bar.place(x=0, rely=0.5, anchor="w", relheight=0.5)
         self._icon = ctk.CTkLabel(
             self._pill, text=icon, font=("Segoe UI", 13),
             text_color=theme.colors.ON_SURFACE_VARIANT,
@@ -50,7 +55,7 @@ class _NavItem(ctk.CTkFrame):
         self._icon.place(relx=0.5, rely=0.5, anchor="center")
 
         self._label = ctk.CTkLabel(
-            self, text=label, font=FONT_CAPTION,
+            self, text=label, font=FONT_SMALL,
             text_color=theme.colors.ON_SURFACE_VARIANT,
         )
         self._label.pack(pady=(0, 1))
@@ -80,19 +85,23 @@ class _NavItem(ctk.CTkFrame):
     def _apply(self) -> None:
         c = self._theme.colors
         if self._active:
-            pill = c.PRIMARY_CONTAINER
-            icon = c.ON_PRIMARY_CONTAINER
+            pill = c.STATE_SELECTED
+            icon = c.PRIMARY
             label = c.ON_SURFACE
+            bar = c.PRIMARY
         elif self._hover:
-            pill = c.SURFACE_HIGH
+            pill = c.STATE_HOVER
             icon = c.ON_SURFACE
             label = c.ON_SURFACE
+            bar = "transparent"
         else:
             pill = "transparent"
             icon = c.ON_SURFACE_VARIANT
             label = c.ON_SURFACE_VARIANT
+            bar = "transparent"
         self.configure(fg_color="transparent")
         self._pill.configure(fg_color=pill)
+        self._bar.configure(fg_color=bar)
         self._icon.configure(text_color=icon)
         self._label.configure(text_color=label)
 

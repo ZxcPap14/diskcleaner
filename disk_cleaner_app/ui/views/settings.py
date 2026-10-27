@@ -37,6 +37,10 @@ from disk_cleaner_app.ui.components.md3 import (
 )
 from disk_cleaner_app.ui.theme import ThemeManager
 
+# Показываем по-русски, в конфиг пишем коды: иначе в списке видно «light».
+THEME_LABELS = {"dark": "Тёмная", "light": "Светлая", "system": "Как в системе"}
+THEME_VALUES = {label: code for code, label in THEME_LABELS.items()}
+
 SAFETY_CHOICES = (
     SafetyLevel.SAFE,
     SafetyLevel.CAUTION,
@@ -140,11 +144,17 @@ class SettingsView(MDScrollArea):
             role="muted", font=FONT_CAPTION, anchor="w",
         ).pack(anchor="w")
 
-        self.theme_var = ctk.StringVar(value=str(self._config_getter("theme", "dark")))
+        self.theme_var = ctk.StringVar(
+            value=THEME_LABELS.get(
+                str(self._config_getter("theme", "dark")), "Тёмная"
+            )
+        )
         MDOptionMenu(
-            row, self._theme, values=["dark", "light", "system"],
+            row, self._theme, values=list(THEME_LABELS.values()),
             variable=self.theme_var, width=150,
-            command=lambda v: self._config_saver("theme", v),
+            command=lambda v: self._config_saver(
+                "theme", THEME_VALUES.get(v, "dark")
+            ),
         ).pack(side="right")
 
         self._divider(card)
@@ -797,7 +807,11 @@ class SettingsView(MDScrollArea):
     # ── обновление ───────────────────────────────────────
 
     def refresh(self) -> None:
-        self.theme_var.set(str(self._config_getter("theme", self._theme.mode)))
+        self.theme_var.set(
+            THEME_LABELS.get(
+                str(self._config_getter("theme", self._theme.mode)), "Тёмная"
+            )
+        )
         self.recycle_var.set(bool(self._config_getter("to_recycle", False)))
         self.safe_var.set(bool(self._config_getter("safe_mode", True)))
         # Трей: автозапуск живёт в реестре, его могли поменять мимо приложения.

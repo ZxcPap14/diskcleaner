@@ -73,8 +73,10 @@ class MDCard(ctk.CTkFrame):
             parent,
             fg_color=self._fg_override or tone_color(theme, tone),
             corner_radius=radius,
-            border_width=1 if outlined else 0,
-            border_color=theme.colors.OUTLINE_VARIANT if outlined else theme.colors.SURFACE_LOW,
+            border_width=1,
+            border_color=(
+                theme.colors.OUTLINE_VARIANT if outlined else theme.colors.BORDER
+            ),
             **kwargs,
         )
         theme.register(self)
@@ -83,7 +85,7 @@ class MDCard(ctk.CTkFrame):
         c = self._theme.colors
         self.configure(
             fg_color=self._fg_override or tone_color(self._theme, self._tone),
-            border_color=c.OUTLINE_VARIANT if self._outlined else c.SURFACE_LOW,
+            border_color=c.OUTLINE_VARIANT if self._outlined else c.BORDER,
         )
 
 
@@ -92,9 +94,11 @@ class MDButton(ctk.CTkButton):
 
     _STYLES = {
         "filled": ("PRIMARY", "ON_PRIMARY", "PRIMARY_HOVER", None),
-        "tonal": ("SECONDARY_CONTAINER", "ON_SECONDARY_CONTAINER", "SECONDARY_HOVER", None),
+        # В WinUI вторичная кнопка — это «заливка контрола» с тонкой рамкой,
+        # а не тональный контейнер Material.
+        "tonal": ("SURFACE_HIGH", "ON_SURFACE", "SURFACE_HIGHEST", "OUTLINE_VARIANT"),
         "tertiary": ("TERTIARY_CONTAINER", "ON_TERTIARY_CONTAINER", "TERTIARY_HOVER", None),
-        "outlined": ("transparent", "ON_SURFACE", "STATE_HOVER", "OUTLINE"),
+        "outlined": ("transparent", "ON_SURFACE", "STATE_HOVER", "OUTLINE_VARIANT"),
         "text": ("transparent", "PRIMARY", "STATE_HOVER", None),
         "text_muted": ("transparent", "ON_SURFACE_VARIANT", "STATE_HOVER", None),
         "danger": ("ERROR", "ON_ERROR", "ERROR_HOVER", None),
@@ -124,7 +128,7 @@ class MDButton(ctk.CTkButton):
             command=command,
             height=height,
             width=width,
-            corner_radius=height // 2,
+            corner_radius=RADIUS_SM,
             font=FONT_LABEL_LARGE,
             **kwargs,
         )
@@ -174,7 +178,7 @@ class MDIconButton(ctk.CTkButton):
             command=command,
             width=size,
             height=size,
-            corner_radius=size // 2,
+            corner_radius=RADIUS_SM,
             font=font,
             **kwargs,
         )
@@ -415,7 +419,7 @@ class MDSegmented(ctk.CTkSegmentedButton):
             parent,
             values=values,
             height=height,
-            corner_radius=height // 2,
+            corner_radius=RADIUS_SM,
             **kwargs,
         )
         self._apply()
@@ -529,7 +533,7 @@ class MDProgress(ctk.CTkProgressBar):
         super().__init__(
             parent,
             height=height,
-            corner_radius=height // 2,
+            corner_radius=RADIUS_SM,
             **kwargs,
         )
         self._apply()
@@ -594,7 +598,7 @@ class MDTextbox(ctk.CTkTextbox):
             parent,
             fg_color=theme.colors.SURFACE_LOWEST,
             text_color=theme.colors.ON_SURFACE_VARIANT,
-            corner_radius=RADIUS_MD,
+            corner_radius=RADIUS_SM,
             border_width=0,
             **kwargs,
         )
@@ -626,7 +630,7 @@ class PageHeader(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=1)
 
         self._icon_frame = ctk.CTkFrame(
-            self, width=46, height=46, corner_radius=14,
+            self, width=40, height=40, corner_radius=RADIUS_MD,
             fg_color=theme.colors.PRIMARY_CONTAINER,
         )
         self._icon_frame.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 14))
