@@ -1,6 +1,7 @@
 """MainWindow — главное окно приложения."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from tkinter import messagebox
 from typing import TYPE_CHECKING
@@ -81,6 +82,10 @@ class MainWindow:
         self._ui.start()
         self.tray: TrayController | None = None
         self._setup_tray()
+        if os.environ.get("DISKCLEANER_HOME"):
+            from disk_cleaner_app.models.config import CONFIG_DIR as _data_dir
+
+            self.statusbar.log(f"📁  Портативный режим: данные в {_data_dir}")
         # --tray приходит от автозапуска; окно прячем, только если так настроено.
         if (start_minimized and bool(self.config.get("start_minimized", False))
                 and self.tray is not None and self.tray.running):
@@ -115,8 +120,21 @@ class MainWindow:
     def _quick_clean_from_tray(self) -> None:
         self._ui.post(self._tray_clean_worker)
 
+    def _job_running(self) -> bool:
+        """Идёт сканирование или очистка хоть в одном экране."""
+        return any(
+            getattr(view, "_is_scanning", False)
+            or getattr(view, "_is_cleaning", False)
+            for view in getattr(self, "views", {}).values()
+        )
+
     def _tray_clean_worker(self) -> None:
         """Тихая очистка safe-набора из трея (в отдельном потоке)."""
+        if self._job_running():
+            self.statusbar.set_status(
+                "⏳  Уже идёт сканирование или очистка — тихая очистка пропущена."
+            )
+            return
         self.statusbar.set_status("🔄  Тихая очистка из трея…")
 
         def worker() -> None:
@@ -142,6 +160,16 @@ class MainWindow:
 
     def _quit_application(self) -> None:
         """Настоящий выход (пункт «Выход» в трее)."""
+        if self._job_running():
+            # Диалог должен быть виден: при свёрнутом окне он уйдёт за ним.
+            self._show_window()
+            if not messagebox.askyesno(
+                "DiskCleaner",
+                "Идёт сканирование или очистка.\n\nВыйти сейчас? "
+                "Незавершённые операции будут прерваны.",
+                parent=self.root,
+            ):
+                return
         self._closing = True
         self._stop_backgrounds()
 

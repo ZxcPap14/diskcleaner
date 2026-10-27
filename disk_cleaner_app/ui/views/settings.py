@@ -800,6 +800,13 @@ class SettingsView(MDScrollArea):
         self.theme_var.set(str(self._config_getter("theme", self._theme.mode)))
         self.recycle_var.set(bool(self._config_getter("to_recycle", False)))
         self.safe_var.set(bool(self._config_getter("safe_mode", True)))
+        # Трей: автозапуск живёт в реестре, его могли поменять мимо приложения.
+        if hasattr(self, "tray_var"):
+            self.tray_var.set(bool(self._config_getter("tray_enabled", False)))
+            self.minimized_var.set(
+                bool(self._config_getter("start_minimized", False))
+            )
+            self.autostart_var.set(self._autostart_enabled())
         self._refresh_history()
         self._refresh_rules()
 

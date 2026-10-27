@@ -10,7 +10,17 @@ from pathlib import Path
 from disk_cleaner_app.cleaners.safety import is_protected_path, validate_custom_path
 from disk_cleaner_app.models.item import SafetyLevel
 
-CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "DiskCleaner"
+
+def _resolve_config_dir() -> Path:
+    """%APPDATA%\\DiskCleaner, либо папка из DISKCLEANER_HOME (--portable)."""
+    override = os.environ.get("DISKCLEANER_HOME")
+    if override:
+        return Path(override)
+    appdata = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
+    return Path(appdata) / "DiskCleaner"
+
+
+CONFIG_DIR = _resolve_config_dir()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 CUSTOM_RULES_FILE = CONFIG_DIR / "custom_rules.json"
 
@@ -25,6 +35,9 @@ DEFAULT_CONFIG: dict = {
     "last_scan": None,
     # owner/repo на GitHub или прямой адрес JSON-манифеста (см. services/updater.py).
     "update_source": "ZxcPap14/diskcleaner",
+    # Ключи есть в дефолте, иначе не попадают в экспорт настроек.
+    "tray_enabled": False,
+    "start_minimized": False,
 }
 
 _VALID_THEMES = ("dark", "light", "system")

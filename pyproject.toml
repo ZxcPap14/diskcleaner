@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "disk-cleaner"
-version = "4.21.1"
+version = "4.22.0"
 description = "🧹 DiskCleaner Pro — очиститель диска для Windows"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,6 +25,7 @@ dependencies = [
     "customtkinter>=5.2,<7",
     "squarify>=0.4.4,<1",
     "pystray>=0.19,<1",
+    "pillow>=10,<13",
 ]
 
 [project.optional-dependencies]

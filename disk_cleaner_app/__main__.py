@@ -14,6 +14,8 @@ CLI-режимы:
                                                  — то же с JSON-отчётом
     python -m disk_cleaner_app --self-test       — проверить сборку и записать
                                                  отчёт в %TEMP% без запуска GUI
+    python -m disk_cleaner_app --portable        — настройки и история рядом
+                                                 с exe (папка DiskCleanerData)
 """
 from __future__ import annotations
 
@@ -89,12 +91,22 @@ def main() -> None:
         help="запуститься свёрнутым в трей (используется автозапуском)",
     )
     parser.add_argument(
+        "--portable", action="store_true",
+        help="хранить настройки и историю рядом с exe, а не в %%APPDATA%%",
+    )
+    parser.add_argument(
         "--self-test", action="store_true",
         help="проверить сборку, записать отчёт в %%TEMP%% и выйти",
     )
     args = parser.parse_args()
 
     _reconfigure_streams()
+
+    # До первого импорта config: он считает CONFIG_DIR при импорте.
+    if args.portable:
+        from disk_cleaner_app.services.portable import apply_portable
+
+        apply_portable()
 
     if args.self_test:
         from disk_cleaner_app.selftest import run_self_test
