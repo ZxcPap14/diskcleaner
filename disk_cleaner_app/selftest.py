@@ -97,6 +97,12 @@ def _check_admin() -> str:
     return "администратор" if elevated else "обычный пользователь"
 
 
+def _check_tray() -> str:
+    from disk_cleaner_app.services.tray_icon import tray_available
+
+    return "pystray + Pillow ok" if tray_available() else "pystray недоступен"
+
+
 def collect_checks() -> dict:
     from disk_cleaner_app import __version__
 
@@ -107,6 +113,7 @@ def collect_checks() -> dict:
         "config_write": _check("config_write", _check_config_write),
         "temp_write": _check("temp_write", _check_temp_write),
         "powershell": _check("powershell", _check_powershell, critical=False),
+        "tray": _check("tray", _check_tray, critical=False),
         "admin": _check("admin", _check_admin, critical=False),
     }
     ok = all(item["ok"] for item in checks.values() if item["critical"])
