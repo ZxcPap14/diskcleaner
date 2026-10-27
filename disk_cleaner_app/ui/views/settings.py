@@ -68,6 +68,7 @@ class SettingsView(MDScrollArea):
                  config_exporter: Callable[[Path], Path] | None = None,
                  config_importer: Callable[[Path], dict] | None = None,
                  report_exporter: Callable[[str, Path], Path] | None = None,
+                 on_autostart_change: Callable[[bool], str] | None = None,
                  **kwargs):
         super().__init__(parent, theme, **kwargs)
         self._theme = theme
@@ -83,6 +84,7 @@ class SettingsView(MDScrollArea):
         self._config_exporter = config_exporter
         self._config_importer = config_importer
         self._report_exporter = report_exporter
+        self._on_autostart_change = on_autostart_change
         self._rules: list[dict] = []
         self._build()
 
@@ -98,6 +100,7 @@ class SettingsView(MDScrollArea):
         header.pack(fill="x", pady=(0, SPACE_3))
 
         self._build_preferences()
+        self._build_tray()
         self._build_history()
         self._build_reports()
         self._build_rules()
@@ -252,6 +255,119 @@ class SettingsView(MDScrollArea):
             self.threshold_entry.bind("<FocusOut>", self._save_threshold)
         except AttributeError:
             pass
+
+    def _build_tray(self) -> None:
+        """Карточка «Трей и автозапуск» (4.19.0)."""
+        card = self._section(
+            "Трей и автозапуск",
+            "Иконка в системном трее и старт вместе с Windows",
+            icon="🔲",
+        )
+
+        from disk_cleaner_app.services.tray_icon import tray_available
+
+        self.tray_var = ctk.BooleanVar(
+            value=bool(self._config_getter("tray_enabled", False))
+        )
+        tray_row = ctk.CTkFrame(card, fg_color="transparent")
+        tray_row.pack(fill="x", padx=18, pady=(6, 8))
+        tray_text = ctk.CTkFrame(tray_row, fg_color="transparent")
+        tray_text.pack(side="left", fill="x", expand=True)
+        MDLabel(
+            tray_text, self._theme,
+            "Иконка в системном трее", role="on_surface",
+            font=FONT_BODY, anchor="w",
+        ).pack(anchor="w")
+        caption = (
+            "Крестик сворачивает приложение в трей, из меню иконки доступны "
+            "тихая очистка и выход."
+            if tray_available()
+            else "Недоступно: установите пакет pystray (pip install pystray)."
+        )
+        MDLabel(
+            tray_text, self._theme, caption,
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=620,
+        ).pack(anchor="w")
+        self.tray_switch = MDSwitch(
+            tray_row, self._theme, text="", variable=self.tray_var,
+            command=lambda: self._config_saver(
+                "tray_enabled", str(self.tray_var.get())
+            ),
+        )
+        self.tray_switch.pack(side="right", padx=(12, 0))
+        if not tray_available():
+            self.tray_switch.configure(state="disabled")
+
+        self.minimized_var = ctk.BooleanVar(
+            value=bool(self._config_getter("start_minimized", False))
+        )
+        min_row = ctk.CTkFrame(card, fg_color="transparent")
+        min_row.pack(fill="x", padx=18, pady=(4, 8))
+        min_text = ctk.CTkFrame(min_row, fg_color="transparent")
+        min_text.pack(side="left", fill="x", expand=True)
+        MDLabel(
+            min_text, self._theme,
+            "Запускаться свёрнутым в трей", role="on_surface",
+            font=FONT_BODY, anchor="w",
+        ).pack(anchor="w")
+        MDLabel(
+            min_text, self._theme,
+            "Старт с --tray (в том числе по автозапуску) не показывает окно — "
+            "только иконку в трее. Требуется включённая иконка трея.",
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=620,
+        ).pack(anchor="w")
+        MDSwitch(
+            min_row, self._theme, text="", variable=self.minimized_var,
+            command=lambda: self._config_saver(
+                "start_minimized", str(self.minimized_var.get())
+            ),
+        ).pack(side="right", padx=(12, 0))
+
+        self.autostart_var = ctk.BooleanVar(
+            value=self._autostart_enabled()
+        )
+        auto_row = ctk.CTkFrame(card, fg_color="transparent")
+        auto_row.pack(fill="x", padx=18, pady=(4, 14))
+        auto_text = ctk.CTkFrame(auto_row, fg_color="transparent")
+        auto_text.pack(side="left", fill="x", expand=True)
+        MDLabel(
+            auto_text, self._theme,
+            "Автозапуск вместе с Windows", role="on_surface",
+            font=FONT_BODY, anchor="w",
+        ).pack(anchor="w")
+        MDLabel(
+            auto_text, self._theme,
+            "Запись в HKCU\\…\\CurrentVersion\\Run: приложение стартует вместе "
+            "с Windows, права администратора не нужны.",
+            role="muted", font=FONT_CAPTION, anchor="w", justify="left",
+            wraplength=620,
+        ).pack(anchor="w")
+        MDSwitch(
+            auto_row, self._theme, text="", variable=self.autostart_var,
+            command=self._apply_autostart,
+        ).pack(side="right", padx=(12, 0))
+
+    def _autostart_enabled(self) -> bool:
+        try:
+            from disk_cleaner_app.services.autostart_self import get_autostart
+
+            return get_autostart() is not None
+        except Exception:
+            return False
+
+    def _apply_autostart(self) -> None:
+        enabled = bool(self.autostart_var.get())
+        if self._on_autostart_change is not None:
+            message = self._on_autostart_change(enabled)
+        else:
+            from disk_cleaner_app.services.autostart_self import set_autostart
+
+            _ok, message = set_autostart(enabled)
+        if message and not message.startswith("Автозапуск включён"):
+            # Неудачу показываем явно; успех и так виден по положению тумблера.
+            messagebox.showwarning("Автозапуск", message)
 
     def _divider(self, parent) -> None:
         ctk.CTkFrame(

@@ -85,6 +85,10 @@ def main() -> None:
         help="записать JSON-отчёт (с --scan или --clean)",
     )
     parser.add_argument(
+        "--tray", action="store_true",
+        help="запуститься свёрнутым в трей (используется автозапуском)",
+    )
+    parser.add_argument(
         "--self-test", action="store_true",
         help="проверить сборку, записать отчёт в %%TEMP%% и выйти",
     )
@@ -110,7 +114,7 @@ def main() -> None:
 
     from disk_cleaner_app.ui.app import main as run
 
-    run()
+    run(start_minimized=args.tray)
 
 
 if __name__ == "__main__":

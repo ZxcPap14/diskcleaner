@@ -6,9 +6,10 @@
 """
 from PyInstaller.utils.hooks import collect_data_files
 
-datas = collect_data_files("customtkinter")
+datas = collect_data_files("customtkinter") + [("assets", "assets")]
 
-hiddenimports = ["customtkinter", "squarify"]
+# pystray выбирает бэкенд динамически (см. build.py).
+hiddenimports = ["customtkinter", "squarify", "pystray", "pystray._win32"]
 
 # Легаси-модули не используются приложением и не включаются в сборку.
 # Тяжёлые численные пакеты приходят только через необязательный

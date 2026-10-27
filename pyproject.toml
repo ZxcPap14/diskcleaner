@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "disk-cleaner"
-version = "4.18.0"
+version = "4.19.0"
 description = "🧹 DiskCleaner Pro — очиститель диска для Windows"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     "customtkinter>=5.2,<7",
     "squarify>=0.4.4,<1",
+    "pystray>=0.19,<1",
 ]
 
 [project.optional-dependencies]
@@ -59,5 +60,5 @@ python_version = "3.12"
 exclude = 'disk_cleaner_app/legacy'
 
 [[tool.mypy.overrides]]
-module = ["customtkinter", "customtkinter.*", "squarify", "squarify.*"]
+module = ["customtkinter", "customtkinter.*", "squarify", "squarify.*", "pystray", "pystray.*"]
 ignore_missing_imports = true

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tkinter import messagebox
+from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
@@ -23,6 +24,7 @@ from disk_cleaner_app.ui.assets import CONTENT_PAD, SPACE_2
 from disk_cleaner_app.ui.components.header import HeaderBar
 from disk_cleaner_app.ui.components.sidebar import NavigationSidebar
 from disk_cleaner_app.ui.components.statusbar import StatusBar
+from disk_cleaner_app.ui.dispatch import UiDispatcher
 from disk_cleaner_app.ui.theme import ThemeManager
 from disk_cleaner_app.ui.views.analyzer import AnalyzerView
 from disk_cleaner_app.ui.views.dashboard import DashboardView
@@ -35,11 +37,14 @@ from disk_cleaner_app.ui.views.smart_clean import SmartCleanView
 from disk_cleaner_app.ui.views.startup import StartupView
 from disk_cleaner_app.ui.views.uninstaller import UninstallerView
 
+if TYPE_CHECKING:
+    from disk_cleaner_app.services.tray_icon import TrayController
+
 
 class MainWindow:
     """Главное окно — сборка всего приложения."""
 
-    def __init__(self) -> None:
+    def __init__(self, start_minimized: bool = False) -> None:
         setup_logging()
         ctk.set_appearance_mode("dark")
         self.root = ctk.CTk()
@@ -70,20 +75,109 @@ class MainWindow:
         self.root.bind("<Control-c>", lambda e: self._on_clean())
         self.root.bind("<Control-a>", lambda e: self._select_all())
 
+        # ── Трей и свёрнутый запуск (4.19.0) ──
+        self._closing = False
+        self._ui = UiDispatcher(self.root)
+        self._ui.start()
+        self.tray: TrayController | None = None
+        self._setup_tray()
+        # --tray приходит от автозапуска; окно прячем, только если так настроено.
+        if (start_minimized and bool(self.config.get("start_minimized", False))
+                and self.tray is not None and self.tray.running):
+            self.root.withdraw()
+
+    # ── трей ─────────────────────────────────────────
+
+    def _setup_tray(self) -> None:
+        if not bool(self.config.get("tray_enabled", False)):
+            return
+        from disk_cleaner_app.services.tray_icon import TrayController
+
+        controller = TrayController(
+            on_show=self._show_from_tray,
+            on_quick_clean=self._quick_clean_from_tray,
+            on_quit=self._quit_from_tray,
+        )
+        if controller.start():
+            self.tray = controller
+
+    def _show_from_tray(self) -> None:
+        self._ui.post(self._show_window)
+
+    def _show_window(self) -> None:
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _quick_clean_from_tray(self) -> None:
+        self._ui.post(self._tray_clean_worker)
+
+    def _tray_clean_worker(self) -> None:
+        """Тихая очистка safe-набора из трея (в отдельном потоке)."""
+        self.statusbar.set_status("🔄  Тихая очистка из трея…")
+
+        def worker() -> None:
+            from disk_cleaner_app.services.auto_clean import run_silent_clean
+
+            summary = run_silent_clean(mode="smart")
+            from disk_cleaner_app.models.item import format_bytes
+
+            self._ui.post(
+                self.statusbar.set_status,
+                f"✅  Тихая очистка: освобождено "
+                f"{format_bytes(summary['freed'])}",
+            )
+            self._ui.post(self._update_disk_info)
+
+        import threading
+
+        threading.Thread(target=worker, daemon=True,
+                         name="tray-quick-clean").start()
+
+    def _quit_from_tray(self) -> None:
+        self._ui.post(self._quit_application)
+
+    def _quit_application(self) -> None:
+        """Настоящий выход (пункт «Выход» в трее)."""
+        self._closing = True
+        self._stop_backgrounds()
+
     def run(self) -> None:
         """Запустить главный цикл Tk."""
         self.root.mainloop()
 
     def _on_close(self) -> None:
-        """Остановить фоновые задачи и закрыть окно."""
+        """Закрыть окно; при активном трее — свернуть в трей."""
         if getattr(self, "_closing", False):
             return
+        if self.tray is not None and self.tray.running:
+            # Крестик сворачивает в трей; настоящий выход — через меню трея.
+            self.root.withdraw()
+            self.statusbar.log("Свернуто в трей; выход — через меню иконки.")
+            return
         self._closing = True
+        self._stop_backgrounds()
+
+    def _stop_backgrounds(self) -> None:
         for view in getattr(self, "views", {}).values():
             try:
                 view.destroy()
             except Exception:
                 pass
+        tray = getattr(self, "tray", None)
+        if tray is not None:
+            try:
+                tray.stop()
+            except Exception:
+                pass
+        try:
+            if getattr(self, "_ui", None) is not None:
+                self._ui.stop()
+        except Exception:
+            pass
         try:
             self.root.destroy()
         except Exception:
@@ -213,6 +307,7 @@ class MainWindow:
             on_remove_rule=self._remove_rule,
             config_exporter=self._export_config,
             config_importer=self._import_config,
+            on_autostart_change=self._change_autostart,
             report_exporter=self._export_report,
         )
 
@@ -411,6 +506,14 @@ class MainWindow:
         if self.views.get("clean") and hasattr(self.views["clean"], "select_all"):
             self.views["clean"].select_all()
 
+    def _change_autostart(self, enabled: bool) -> str:
+        """Включить/выключить свой автозапуск и показать результат в статусе."""
+        from disk_cleaner_app.services.autostart_self import set_autostart
+
+        _ok, message = set_autostart(enabled)
+        self.statusbar.log(message)
+        return message
+
     def _clear_history(self) -> None:
         try:
             self.history.clear()
@@ -475,5 +578,5 @@ class MainWindow:
         return target
 
 
-def main() -> None:
-    MainWindow().run()
+def main(start_minimized: bool = False) -> None:
+    MainWindow(start_minimized=start_minimized).run()

@@ -124,9 +124,17 @@ def build_command(
         "--collect-data", "customtkinter",
         "--hidden-import", "customtkinter",
         "--hidden-import", "squarify",
+        # pystray выбирает бэкенд динамически — без этого трей молча
+        # отсутствует в собранном exe.
+        "--hidden-import", "pystray",
+        "--hidden-import", "pystray._win32",
     ]
     if os.path.exists(ICON_PATH):
         cmd += ["--icon", os.path.abspath(ICON_PATH)]
+    assets_dir = os.path.abspath("assets")
+    if os.path.isdir(assets_dir):
+        # Иконка трея лежит в assets; onefile кладёт её в _MEIPASS.
+        cmd += ["--add-data", f"{assets_dir}{os.pathsep}assets"]
     if version_file:
         cmd += ["--version-file", version_file]
     if uac_admin:
