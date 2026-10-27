@@ -75,6 +75,9 @@ class SettingsView(MDScrollArea):
                  on_autostart_change: Callable[[bool], str] | None = None,
                  on_check_updates: Callable[[str], None] | None = None,
                  **kwargs):
+        # Строка настроек шире ~1120 px становится нечитаемой: подпись и
+        # переключатель оказываются на разных краях экрана.
+        kwargs.setdefault("max_width", 1120)
         super().__init__(parent, theme, **kwargs)
         self._theme = theme
         self._config_saver = config_saver
@@ -688,11 +691,10 @@ class SettingsView(MDScrollArea):
             row, self._theme, "День", role="secondary", font=FONT_LABEL,
         ).pack(side="left", padx=(0, 4))
         self.sched_day_var = ctk.StringVar(value="ВС")
-        ctk.CTkOptionMenu(
-            row, values=["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"],
-            variable=self.sched_day_var, width=76, height=32,
+        MDOptionMenu(
+            row, self._theme, values=["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"],
+            variable=self.sched_day_var, width=76,
         ).pack(side="left")
-
         MDLabel(
             row, self._theme, "Время", role="secondary", font=FONT_LABEL,
         ).pack(side="left", padx=(10, 4))
@@ -707,10 +709,10 @@ class SettingsView(MDScrollArea):
         self.sched_mode_var = ctk.StringVar(
             value=str(self._config_getter("schedule_mode", "smart"))
         )
-        ctk.CTkOptionMenu(
-            row,
+        MDOptionMenu(
+            row, self._theme,
             values=["smart", "deep-safe"],
-            variable=self.sched_mode_var, width=120, height=32,
+            variable=self.sched_mode_var, width=120,
         ).pack(side="left")
 
         self.sched_install_btn = MDButton(

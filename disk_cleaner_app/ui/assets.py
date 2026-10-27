@@ -198,14 +198,14 @@ RADIUS_LG = 8
 RADIUS_XL = 12
 RADIUS_FULL = 999
 
-# ── Размеры компонентов (WinUI: контрол 32 px, поле 32 px) ──
-SIDEBAR_WIDTH = 88
-HEADER_HEIGHT = 64
-STATUSBAR_HEIGHT = 48
-BTN_HEIGHT = 32
-BTN_HEIGHT_SM = 28
-FIELD_HEIGHT = 32
-TREE_ROW_HEIGHT = 32
+# ── Размеры компонентов (WinUI: контрол 32 px, но текст у нас крупнее) ──
+SIDEBAR_WIDTH = 96
+HEADER_HEIGHT = 68
+STATUSBAR_HEIGHT = 50
+BTN_HEIGHT = 34
+BTN_HEIGHT_SM = 30
+FIELD_HEIGHT = 34
+TREE_ROW_HEIGHT = 34
 CONTENT_PAD = 20
 
 # Старые имена
@@ -213,22 +213,23 @@ CORNER_RADIUS = RADIUS_SM
 CORNER_SMALL = RADIUS_SM
 
 # ── Типографика ─────────────────────────────────────────
-# Размеры в пунктах: WinUI Body 14 px ≈ 10 pt, Subtitle 20 px ≈ 15 pt.
-FONT_DISPLAY = ("Segoe UI", 22, "bold")
-FONT_HEADLINE = ("Segoe UI", 17, "bold")
-FONT_HEADLINE_SMALL = ("Segoe UI", 15, "bold")
-FONT_TITLE_LARGE = ("Segoe UI", 13, "bold")
-FONT_TITLE = ("Segoe UI", 12, "bold")
-FONT_TITLE_MEDIUM = ("Segoe UI", 10, "bold")
-FONT_BODY_LARGE = ("Segoe UI", 11)
-FONT_BODY = ("Segoe UI", 10)
-FONT_LABEL = ("Segoe UI", 9)
-FONT_LABEL_LARGE = ("Segoe UI", 10, "bold")
-FONT_CAPTION = ("Segoe UI", 8)
+# Размеры в пунктах: WinUI Body 14 px ≈ 10 pt. Берём на шаг крупнее —
+# на 96 dpi «14 px» в Tk читается мелко.
+FONT_DISPLAY = ("Segoe UI", 24, "bold")
+FONT_HEADLINE = ("Segoe UI", 19, "bold")
+FONT_HEADLINE_SMALL = ("Segoe UI", 17, "bold")
+FONT_TITLE_LARGE = ("Segoe UI", 14, "bold")
+FONT_TITLE = ("Segoe UI", 13, "bold")
+FONT_TITLE_MEDIUM = ("Segoe UI", 11, "bold")
+FONT_BODY_LARGE = ("Segoe UI", 12)
+FONT_BODY = ("Segoe UI", 11)
+FONT_LABEL = ("Segoe UI", 10)
+FONT_LABEL_LARGE = ("Segoe UI", 11, "bold")
+FONT_CAPTION = ("Segoe UI", 10)
 
-FONT = ("Segoe UI", 10)
-FONT_BOLD = ("Segoe UI", 10, "bold")
-FONT_SMALL = ("Segoe UI", 9)
-FONT_HEADER = ("Segoe UI", 15, "bold")
-FONT_MONO = ("Consolas", 10)
-FONT_MONO_SMALL = ("Consolas", 9)
+FONT = ("Segoe UI", 11)
+FONT_BOLD = ("Segoe UI", 11, "bold")
+FONT_SMALL = ("Segoe UI", 10)
+FONT_HEADER = ("Segoe UI", 17, "bold")
+FONT_MONO = ("Consolas", 11)
+FONT_MONO_SMALL = ("Consolas", 10)

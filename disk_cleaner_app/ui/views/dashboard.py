@@ -95,7 +95,7 @@ class DashboardView(ctk.CTkFrame):
             "Система готова", icon="●", tone="secondary_container",
         ).pack(side="right")
 
-        body = MDScrollArea(self, self._theme)
+        body = MDScrollArea(self, self._theme, max_width=1280)
         body.grid(row=1, column=0, sticky="nsew")
         self._body = body
 

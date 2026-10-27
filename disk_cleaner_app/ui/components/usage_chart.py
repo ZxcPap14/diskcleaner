@@ -7,6 +7,7 @@ import customtkinter as ctk
 
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.ui.assets import FONT_CAPTION
+from disk_cleaner_app.ui.debounce import DebouncedEvent
 
 # Точки старше этого возраста рисуются реже (метки месяцев).
 _MAX_LABELS = 6
@@ -22,7 +23,7 @@ class UsageTrendChart(ctk.CTkCanvas):
             parent, height=height, bg=theme.colors.SURFACE_LOW,
             highlightthickness=0, bd=0, **kwargs,
         )
-        self.bind("<Configure>", lambda _e: self.redraw())
+        self.bind("<Configure>", DebouncedEvent(self, self.redraw), add="+")
         theme.register(self)
 
     # ── данные ────────────────────────────────────────

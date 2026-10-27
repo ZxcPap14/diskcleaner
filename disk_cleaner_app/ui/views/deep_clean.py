@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
@@ -49,6 +50,7 @@ from disk_cleaner_app.ui.assets import (
     FONT_LABEL_LARGE,
     FONT_MONO_SMALL,
     FONT_TITLE_MEDIUM,
+    RADIUS_MD,
     SPACE_2,
     SPACE_3,
 )
@@ -138,7 +140,7 @@ class _LayerCard(ctk.CTkFrame):
         super().__init__(
             parent,
             fg_color=theme.colors.SURFACE_LOW,
-            corner_radius=14,
+            corner_radius=RADIUS_MD,
             border_width=1,
             border_color=theme.colors.OUTLINE_VARIANT,
             cursor="hand2",
@@ -176,7 +178,7 @@ class _LayerCard(ctk.CTkFrame):
         self._title.grid(row=1, column=0, sticky="ew", padx=10)
 
         self._count = ctk.CTkLabel(
-            self, text="", font=("Segoe UI", 8),
+            self, text="", font=FONT_CAPTION,
             text_color=theme.colors.TEXT_MUTED, anchor="w",
         )
         self._count.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
@@ -365,6 +367,8 @@ class _LayerGroup(ctk.CTkFrame):
         self._on_toggle_layer = on_toggle_layer
         self._syncing = False
         self._collapsed = False
+        self._builder: Callable[[_LayerGroup], None] | None = None
+        self._built = False
 
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", pady=(6, 2))
@@ -394,7 +398,6 @@ class _LayerGroup(ctk.CTkFrame):
 
         self.body = ctk.CTkFrame(self, fg_color="transparent")
         self.body.pack(fill="x")
-
         for widget in (self.title, self.total):
             widget.bind("<Button-1>", lambda _event: self.toggle_collapsed())
 
@@ -405,6 +408,13 @@ class _LayerGroup(ctk.CTkFrame):
         self.hint.pack(fill="x", padx=34, pady=(0, 2), before=self.body)
 
         theme.register(self)
+        # Слои свёрнуты: развёрнутые 102 строки = ~1100 виджетов, и каждый
+        # шаг ресайза перерисовывал их все.
+        self.toggle_collapsed()
+
+    def set_builder(self, builder: Callable[[_LayerGroup], None]) -> None:
+        """Строки слоя создаются при первом раскрытии, а не при сборке страницы."""
+        self._builder = builder
 
     def add_row(self, row: _TargetRow) -> None:
         row.pack(fill="x", padx=(4, 0), pady=1)
@@ -454,10 +464,13 @@ class _LayerGroup(ctk.CTkFrame):
             self.body.pack_forget()
             self.hint.pack_forget()
             self.chevron.configure(text="▸")
-        else:
-            self.body.pack(fill="x")
-            self.hint.pack(fill="x", padx=34, pady=(0, 2), before=self.body)
-            self.chevron.configure(text="▾")
+            return
+        if not self._built and self._builder is not None:
+            self._built = True
+            self._builder(self)
+        self.body.pack(fill="x")
+        self.hint.pack(fill="x", padx=34, pady=(0, 2), before=self.body)
+        self.chevron.configure(text="▾")
 
     def refresh_theme(self) -> None:
         pass
@@ -580,8 +593,12 @@ class DeepCleanView(ctk.CTkFrame):
         self.progress = MDProgress(toolbar, self._theme, height=4)
 
         # ── Полоса слоёв ──────────────────────────────
-        strip = ctk.CTkFrame(self, fg_color="transparent")
+        # Фиксированная высота + propagate(False): иначе пять карточек
+        # заявляют свою минимальную ширину и вылезают за край узкого окна.
+        strip = ctk.CTkFrame(self, fg_color="transparent", height=88)
         strip.grid(row=2, column=0, sticky="ew", pady=(0, SPACE_2))
+        strip.grid_propagate(False)
+        strip.grid_rowconfigure(0, weight=1)
         for index, layer in enumerate(LAYERS):
             strip.grid_columnconfigure(index, weight=1, uniform="deep-layer")
             card = _LayerCard(strip, self._theme, layer, self._card_clicked)
@@ -697,23 +714,30 @@ class DeepCleanView(ctk.CTkFrame):
             group = _LayerGroup(self.list, self._theme, layer, self._toggle_layer)
             group.pack(fill="x", padx=2, pady=(2, 0))
             self._groups[layer] = group
-            for cleaner in cleaners:
-                row = _TargetRow(
-                    group.body, self._theme, cleaner, self._admin,
-                    on_toggle=self._set_target,
-                    on_info=self._show_details,
-                )
-                group.add_row(row)
-                self._rows[cleaner.id] = row
-            if layer == LAYER_INVENTORY:
-                group.add_action(
-                    "🔎 Показать крупные файлы",
-                    self._show_large_files,
-                    "топ-50 на диске · только показ",
-                )
+            group.set_builder(partial(self._build_rows, cleaners=cleaners))
 
         self._sync_groups()
         self._update_hint()
+
+    def _build_rows(
+        self, group: _LayerGroup, cleaners: list[BaseCleaner],
+    ) -> None:
+        """Создать строки раскрытого слоя (102 строки ≈ 1100 виджетов)."""
+        for cleaner in cleaners:
+            row = _TargetRow(
+                group.body, self._theme, cleaner, self._admin,
+                on_toggle=self._set_target,
+                on_info=self._show_details,
+            )
+            group.add_row(row)
+            self._rows[cleaner.id] = row
+        if group.layer == LAYER_INVENTORY:
+            group.add_action(
+                "🔎 Показать крупные файлы",
+                self._show_large_files,
+                "топ-50 на диске · только показ",
+            )
+        self._sync_rows()
 
     # ── выбор ────────────────────────────────────────
 
@@ -793,15 +817,13 @@ class DeepCleanView(ctk.CTkFrame):
         self._sync_groups()
 
     def _sync_groups(self) -> None:
+        # Считаем по целям, а не по строкам: строки свёрнутых слоёв ещё не созданы.
         for layer, group in self._groups.items():
-            rows = [row for row in self._rows.values() if row.cleaner.layer == layer]
-            selected = sum(1 for row in rows if row.selected)
-            size = sum(
-                row.cleaner.size for row in rows
-                if row.cleaner.scanned
-            )
-            scanned = any(row.cleaner.scanned for row in rows)
-            group.set_state(selected, len(rows), size, scanned)
+            cleaners = [c for c in self._cleaners if c.layer == layer]
+            selected = sum(1 for c in cleaners if c.id in self._selected)
+            size = sum(c.size for c in cleaners if c.scanned)
+            scanned = any(c.scanned for c in cleaners)
+            group.set_state(selected, len(cleaners), size, scanned)
 
     def _selected_cleaners(self) -> list[BaseCleaner]:
         return [c for c in self._cleaners if c.id in self._selected]

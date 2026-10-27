@@ -22,10 +22,12 @@ from disk_cleaner_app.services.reports import (
     export_entries_json,
     export_json,
 )
+from disk_cleaner_app.ui.adapt import adapt_tree
 from disk_cleaner_app.ui.assets import CONTENT_PAD, SPACE_2
 from disk_cleaner_app.ui.components.header import HeaderBar
 from disk_cleaner_app.ui.components.sidebar import NavigationSidebar
 from disk_cleaner_app.ui.components.statusbar import StatusBar
+from disk_cleaner_app.ui.debounce import DebouncedEvent
 from disk_cleaner_app.ui.dispatch import UiDispatcher
 from disk_cleaner_app.ui.theme import ThemeManager
 from disk_cleaner_app.ui.views.analyzer import AnalyzerView
@@ -52,8 +54,8 @@ class MainWindow:
         self.root = ctk.CTk()
         install_exception_hooks(self.root)
         self.root.title(f"DiskCleaner Pro {__version__}")
-        self.root.geometry("1180x760")
-        self.root.minsize(1024, 660)
+        self.root.geometry("1240x800")
+        self.root.minsize(1080, 700)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # ── Инициализация модулей ──
@@ -219,7 +221,15 @@ class MainWindow:
     # ─────────────────────────────────────
 
     def _build_layout(self) -> None:
-        outer = ctk.CTkFrame(self.root, fg_color="transparent")
+        # Всё окно живёт на «полотне» фиксированного размера: пока тянут край,
+        # Tk не пересчитывает сотни виджетов на каждый пиксель, а делает это
+        # один раз, когда движение остановилось. Иначе видно, как интерфейс
+        # перерисовывается слева направо и окно «залипает».
+        self._stage = ctk.CTkFrame(
+            self.root, fg_color=self.theme.colors.SURFACE, width=1, height=1,
+        )
+        self._stage.place(x=0, y=0)
+        outer = ctk.CTkFrame(self._stage, fg_color="transparent")
         outer.pack(fill="both", expand=True)
         outer.grid_columnconfigure(0, weight=1)
         outer.grid_rowconfigure(1, weight=1, minsize=360)
@@ -254,6 +264,8 @@ class MainWindow:
 
         self.views_frame = ctk.CTkFrame(self.content_card, fg_color="transparent")
         self.views_frame.pack(fill="both", expand=True)
+        self._stage_sync = DebouncedEvent(self.root, self._resize_stage, ms=60)
+        self.root.bind("<Configure>", self._stage_sync, add="+")
 
         self.statusbar = StatusBar(outer, self.theme)
         self.statusbar.grid(
@@ -261,6 +273,16 @@ class MainWindow:
         )
 
         self._build_views()
+        # Подписи с фиксированным wraplength перестают уезжать за край.
+        adapt_tree(self.root)
+        self.root.after_idle(self._resize_stage)
+
+    def _resize_stage(self) -> None:
+        """Подогнать полотно под окно — один раз, когда движение остановилось."""
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        if width > 1 and height > 1:
+            self._stage.place_configure(width=width, height=height)
 
     def _build_views(self) -> None:
         self.views: dict[str, ctk.CTkFrame] = {}
@@ -366,6 +388,8 @@ class MainWindow:
                 self._load_deep_cleaners()
             elif vid == "disks":
                 self.views["disks"].refresh()
+            elif vid == "uninstaller":
+                self.views["uninstaller"].measure_if_needed()
 
     # ─────────────────────────────────────
     # THEME

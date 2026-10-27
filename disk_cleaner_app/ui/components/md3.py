@@ -24,6 +24,7 @@ from disk_cleaner_app.ui.assets import (
     RADIUS_SM,
     TREE_ROW_HEIGHT,
 )
+from disk_cleaner_app.ui.debounce import DebouncedEvent
 from disk_cleaner_app.ui.theme import ThemeManager
 
 
@@ -554,16 +555,33 @@ class MDScrollArea(ctk.CTkScrollableFrame):
     иначе на экранах с запасом высоты оставался бы «пустой» трек.
     """
 
-    def __init__(self, parent: Any, theme: ThemeManager, **kwargs: Any) -> None:
+    def __init__(
+        self, parent: Any, theme: ThemeManager, *, max_width: int = 0, **kwargs: Any,
+    ) -> None:
         self._theme = theme
+        self._max_width = max_width
         kwargs.setdefault("fg_color", theme.colors.SURFACE)
         kwargs.setdefault("corner_radius", 0)
         kwargs.setdefault("scrollbar_button_color", theme.colors.OUTLINE_VARIANT)
         kwargs.setdefault("scrollbar_button_hover_color", theme.colors.OUTLINE)
         super().__init__(parent, **kwargs)
-        self.bind("<Configure>", self._sync_scrollbar, add="+")
-        self._parent_canvas.bind("<Configure>", self._sync_scrollbar, add="+")
+        self._debounced_sync = DebouncedEvent(self, self._sync_scrollbar)
+        self.bind("<Configure>", self._debounced_sync, add="+")
+        self._parent_canvas.bind("<Configure>", self._debounced_sync, add="+")
         theme.register(self)
+
+    def _fit_frame_dimensions_to_canvas(self, event: Any) -> None:
+        """Ограничить ширину колонки и центрировать её, как в «Параметрах».
+
+        Без этого на 1600 px подпись и переключатель разъезжаются на пол-экрана.
+        """
+        super()._fit_frame_dimensions_to_canvas(event)
+        if not self._max_width:
+            return
+        canvas_width = self._parent_canvas.winfo_width()
+        width = min(canvas_width, self._max_width)
+        self._parent_canvas.itemconfigure(self._create_window_id, width=width)
+        self._parent_canvas.coords(self._create_window_id, (canvas_width - width) // 2, 0)
 
     def _sync_scrollbar(self, _event: Any = None) -> None:
         try:
@@ -762,16 +780,20 @@ class MDPill(ctk.CTkFrame):
 def style_treeview(name: str, theme: ThemeManager, row_height: int = TREE_ROW_HEIGHT) -> None:
     """Единый компактный стиль ttk.Treeview в духе MD3."""
     c = theme.colors
+    # Вызывающие передают 30 для старых мелких шрифтов; на новом кегле строка
+    # обрезает текст, поэтому высоту ниже токена не опускаем.
+    row_height = max(row_height, TREE_ROW_HEIGHT)
     style = ttk.Style()
     try:
         style.theme_use("clam")
     except Exception:
         pass
+    style.layout(f"{name}.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
     style.configure(
         f"{name}.Treeview",
-        background=c.SURFACE_LOWEST,
+        background=c.SURFACE_LOW,
         foreground=c.ON_SURFACE,
-        fieldbackground=c.SURFACE_LOWEST,
+        fieldbackground=c.SURFACE_LOW,
         borderwidth=0,
         relief="flat",
         rowheight=row_height,
@@ -779,7 +801,7 @@ def style_treeview(name: str, theme: ThemeManager, row_height: int = TREE_ROW_HE
     )
     style.configure(
         f"{name}.Treeview.Heading",
-        background=c.SURFACE_LOW,
+        background=c.SURFACE_HIGH,
         foreground=c.ON_SURFACE_VARIANT,
         borderwidth=0,
         relief="flat",

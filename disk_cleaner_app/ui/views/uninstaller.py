@@ -31,6 +31,7 @@ from disk_cleaner_app.ui.components.md3 import (
     SectionTitle,
     style_treeview,
 )
+from disk_cleaner_app.ui.debounce import DebouncedEvent
 from disk_cleaner_app.ui.dispatch import UiDispatcher
 from disk_cleaner_app.ui.theme import ThemeManager
 
@@ -53,6 +54,7 @@ class UninstallerView(ctk.CTkFrame):
         self._measure_generation = 0
         self._measured_total = 0
         self._measure_total = 0
+        self._needs_measure = False
         self._queue_stop = threading.Event()
         self._ui = UiDispatcher(self)
         self._ui.start()
@@ -188,12 +190,12 @@ class UninstallerView(ctk.CTkFrame):
         self.tree.heading("version", text="Версия", anchor="w")
         self.tree.heading("size", text="Размер", anchor="e")
         self.tree.heading("date", text="Установлена", anchor="e")
-        self.tree.column("name", width=225, minwidth=140)
-        self.tree.column("disk", width=52, minwidth=44, anchor="center",
+        self.tree.column("name", width=172, minwidth=140)
+        self.tree.column("disk", width=54, minwidth=48, anchor="center",
                          stretch=False)
-        self.tree.column("version", width=88, minwidth=64, stretch=False)
-        self.tree.column("size", width=92, minwidth=70, anchor="e", stretch=False)
-        self.tree.column("date", width=106, minwidth=90, anchor="e", stretch=False)
+        self.tree.column("version", width=76, minwidth=64, stretch=False)
+        self.tree.column("size", width=88, minwidth=70, anchor="e", stretch=False)
+        self.tree.column("date", width=116, minwidth=110, anchor="e", stretch=False)
 
         self._list_scroll = ctk.CTkScrollbar(
             list_card, command=self.tree.yview, width=10,
@@ -223,7 +225,7 @@ class UninstallerView(ctk.CTkFrame):
             highlightthickness=0, bd=0,
         )
         self.chart.pack(fill="x", padx=14, pady=(0, 12))
-        self.chart.bind("<Configure>", lambda e: self._draw_chart())
+        self.chart.bind("<Configure>", DebouncedEvent(self.chart, self._draw_chart), add="+")
 
         log_card = MDCard(right, self._theme, tone="low")
         log_card.grid(row=1, column=0, sticky="nsew", pady=(SPACE_2, 0))
@@ -274,6 +276,17 @@ class UninstallerView(ctk.CTkFrame):
             app.pop("real_size", None)
         self._refresh_disk_menu()
         self._filter_apps()
+        # Размеры папок — самый дорогой проход (рекурсивный scandir Program Files).
+        # Пока экран не открыт, он только отбирает GIL у окна.
+        self._needs_measure = True
+        if self.winfo_ismapped():
+            self.measure_if_needed()
+
+    def measure_if_needed(self) -> None:
+        """Посчитать размеры папок, если экран открыли и они ещё не посчитаны."""
+        if not self._needs_measure:
+            return
+        self._needs_measure = False
         self._start_measurement()
 
     def _refresh_disk_menu(self) -> None:

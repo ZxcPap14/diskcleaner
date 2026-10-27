@@ -68,6 +68,7 @@ _FALLBACK_ROOTS = (
 )
 
 _covered_cache: tuple[Path, ...] | None = None
+_covered_strs: tuple[str, ...] | None = None
 
 
 def _norm(path: Path) -> Path:
@@ -142,17 +143,33 @@ def covered_cache_roots() -> tuple[Path, ...]:
 
 def reset_covered_cache() -> None:
     """Сбросить кэш covered-корней (после установки новых целей)."""
-    global _covered_cache
+    global _covered_cache, _covered_strs
     _covered_cache = None
+    _covered_strs = None
+
+
+def _covered_strings() -> tuple[str, ...]:
+    """Те же корни, но строками: сравнение Path дешевле не сделать.
+
+    ``root in p.parents`` перебирает всю цепочку родителей и строит объекты
+    Path на каждый элемент — на сотнях корней это секунды в UI-потоке.
+    """
+    global _covered_strs
+    if _covered_strs is None:
+        _covered_strs = tuple(
+            os.path.normcase(os.path.abspath(str(p)))
+            for p in covered_cache_roots()
+        )
+    return _covered_strs
 
 
 def is_covered(path: Path) -> bool:
     """Покрыт ли путь встроенным очистителем (или находится внутри него)."""
-    p = _norm(path)
-    for root in covered_cache_roots():
-        if p == root or root in p.parents:
-            return True
-    return False
+    p = os.path.normcase(os.path.abspath(str(path)))
+    return any(
+        p == root or p.startswith(root + os.sep)
+        for root in _covered_strings()
+    )
 
 
 class AutoDiscoveredCleaner(BaseCleaner):

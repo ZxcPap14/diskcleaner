@@ -29,6 +29,7 @@ from disk_cleaner_app.ui.components.md3 import (
     MDCard,
     MDEntry,
     MDLabel,
+    MDOptionMenu,
     PageHeader,
     SectionTitle,
     style_treeview,
@@ -96,10 +97,10 @@ class StartupView(ctk.CTkFrame):
         ).pack(side="left")
 
         self.mode_var = ctk.StringVar(value="Записи")
-        self._mode_menu = ctk.CTkOptionMenu(
-            row,
+        self._mode_menu = MDOptionMenu(
+            row, self._theme,
             values=["Записи", "Службы", "Задачи планировщика"],
-            variable=self.mode_var, width=170, height=34,
+            variable=self.mode_var, width=170,
             command=self._set_mode,
         )
         self._mode_menu.pack(side="left", padx=(14, 0))

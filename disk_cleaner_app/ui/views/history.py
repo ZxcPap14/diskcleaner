@@ -29,11 +29,13 @@ from disk_cleaner_app.ui.components.md3 import (
     MDCard,
     MDEntry,
     MDLabel,
+    MDOptionMenu,
     MDTextbox,
     PageHeader,
     SectionTitle,
     style_treeview,
 )
+from disk_cleaner_app.ui.debounce import DebouncedEvent
 from disk_cleaner_app.ui.theme import ThemeManager
 
 
@@ -102,10 +104,10 @@ class HistoryView(ctk.CTkFrame):
             row, self._theme, "Тип", role="muted", font=FONT_LABEL,
         ).pack(side="left", padx=(12, 4))
         self.type_var = ctk.StringVar(value="Все типы")
-        self.type_menu = ctk.CTkOptionMenu(
-            row,
+        self.type_menu = MDOptionMenu(
+            row, self._theme,
             values=["Все типы", "Smart Clean", "Глубокая очистка", "Очистка"],
-            variable=self.type_var, width=150, height=32,
+            variable=self.type_var, width=150,
             command=lambda _v: self._apply(),
         )
         self.type_menu.pack(side="left")
@@ -204,7 +206,7 @@ class HistoryView(ctk.CTkFrame):
             highlightthickness=0, bd=0,
         )
         self.chart.pack(fill="both", expand=True, padx=14, pady=(0, 10))
-        self.chart.bind("<Configure>", lambda e: self._draw_chart())
+        self.chart.bind("<Configure>", DebouncedEvent(self.chart, self._draw_chart), add="+")
 
         self.status_label = MDLabel(
             self, self._theme, "", role="muted", font=FONT_CAPTION, anchor="w",
