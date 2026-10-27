@@ -23,6 +23,8 @@ DEFAULT_CONFIG: dict = {
     "to_recycle": False,
     "theme": "dark",
     "last_scan": None,
+    # owner/repo на GitHub или прямой адрес JSON-манифеста (см. services/updater.py).
+    "update_source": "ZxcPap14/diskcleaner",
 }
 
 _VALID_THEMES = ("dark", "light", "system")

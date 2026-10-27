@@ -373,10 +373,10 @@ class SettingsView(MDScrollArea):
             messagebox.showwarning("Автозапуск", message)
 
     def _build_updates(self) -> None:
-        """Карточка «Обновления»: адрес манифеста и проверка (4.20.0)."""
+        """Карточка «Обновления»: последний релиз GitHub или свой манифест."""
         card = self._section(
             "Обновления",
-            "Сравнение установленной версии с JSON-манифестом по вашему адресу",
+            "Последний релиз GitHub (owner/repo) или свой JSON-манифест",
             icon="⬆",
         )
 
@@ -385,19 +385,20 @@ class SettingsView(MDScrollArea):
         text = ctk.CTkFrame(row, fg_color="transparent")
         text.pack(side="left", fill="x", expand=True)
         MDLabel(
-            text, self._theme, "Адрес манифеста", role="on_surface",
+            text, self._theme, "Источник обновлений", role="on_surface",
             font=FONT_BODY, anchor="w",
         ).pack(anchor="w")
         MDLabel(
             text, self._theme,
-            "JSON вида {\"version\": \"4.21.0\", \"url\": \"https://…\"}. "
-            "Пустой адрес выключает проверку; сеть не используется без нажатия.",
+            "owner/repo на GitHub — берётся последний опубликованный релиз; "
+            "либо адрес JSON-манифеста {\"version\": \"4.21.0\", \"url\": \"…\"}. "
+            "Пустое поле выключает проверку; сеть не используется без кнопки.",
             role="muted", font=FONT_CAPTION, anchor="w", justify="left",
             wraplength=620,
         ).pack(anchor="w")
 
         self.update_url_var = ctk.StringVar(
-            value=str(self._config_getter("update_url", ""))
+            value=str(self._config_getter("update_source", ""))
         )
         self.update_entry = MDEntry(
             row, self._theme, textvariable=self.update_url_var, width=300,
@@ -423,16 +424,16 @@ class SettingsView(MDScrollArea):
 
     def _save_update_url(self) -> None:
         url = self.update_url_var.get().strip()
-        self._config_saver("update_url", url)
+        self._config_saver("update_source", url)
 
     def _run_update_check(self) -> None:
-        """Спросить сервер; сеть — в фоне, результат придёт в show_update_result."""
+        """Спросить GitHub/манифест; сеть — в фоне, ответ придёт в show_update_result."""
         self._save_update_url()
         url = self.update_url_var.get().strip()
         if not url:
             self.show_update_result({
                 "status": "disabled",
-                "message": "Задайте адрес манифеста — проверка выключена.",
+                "message": "Задайте owner/repo или адрес манифеста — проверка выключена.",
             })
             return
         self.show_update_result(

@@ -24,7 +24,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def manifest_server(payload, status: int = 200):
+def manifest_server(payload, status: int = 200, path: str = "latest.json"):
     """Поднять сервер на 127.0.0.1 со своим ответом и отдать URL."""
     body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
     handler = type("H", (_Handler,), {"body": body, "status": status})
@@ -32,7 +32,7 @@ def manifest_server(payload, status: int = 200):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}/latest.json"
+        yield f"http://127.0.0.1:{server.server_port}/{path}"
     finally:
         server.shutdown()
         server.server_close()
@@ -78,7 +78,7 @@ def test_unreachable_host_is_error_not_exception() -> None:
     )
 
     assert result["status"] == updater.STATUS_ERROR
-    assert "Не удалось получить манифест" in result["message"]
+    assert "Не удалось получить данные" in result["message"]
 
 
 # ── живой манифест ───────────────────────────────────────
@@ -134,3 +134,38 @@ def test_http_error_status_is_error() -> None:
         result = updater.check_for_updates("4.19.0", url)
 
     assert result["status"] == updater.STATUS_ERROR
+    assert "HTTP 404" in result["message"]
+
+
+def test_repo_shorthand_resolves_to_releases_api() -> None:
+    assert updater.resolve_source("ZxcPap14/diskcleaner") == (
+        "https://api.github.com/repos/ZxcPap14/diskcleaner/releases/latest"
+    )
+
+
+def test_explicit_url_is_kept_as_is() -> None:
+    url = "https://example.org/manifest.json"
+    assert updater.resolve_source(url) == url
+    assert updater.resolve_source("") == ""
+    assert updater.resolve_source(None) == ""
+
+
+def test_github_without_releases_message() -> None:
+    """404 от GitHub объясняется по-человечески, а не «HTTP 404»."""
+    with manifest_server(
+        {"message": "Not Found"}, status=404,
+        path="repos/x/y/releases/latest",
+    ) as url:
+        result = updater.check_for_updates("4.19.0", url)
+
+    assert result["status"] == updater.STATUS_ERROR
+    assert "нет опубликованных релизов" in result["message"]
+
+
+def test_unreachable_github_host_is_network_error() -> None:
+    result = updater.check_for_updates(
+        "4.19.0", "http://127.0.0.1:1/repos/x/y/releases/latest", timeout=1.0
+    )
+
+    assert result["status"] == updater.STATUS_ERROR
+    assert "Не удалось получить данные" in result["message"]
