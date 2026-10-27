@@ -8,6 +8,10 @@ CLI-режимы:
                                                  — только тихая очистка, без GUI
     python -m disk_cleaner_app --smart-clean --deep-safe --silent
                                                  — тихая deep-очистка слоем A
+    python -m disk_cleaner_app --scan            — скан preset'а, без удаления
+    python -m disk_cleaner_app --clean safe      — скан + очистка preset'а
+    python -m disk_cleaner_app --clean safe --report out.json
+                                                 — то же с JSON-отчётом
     python -m disk_cleaner_app --self-test       — проверить сборку и записать
                                                  отчёт в %TEMP% без запуска GUI
 """
@@ -46,6 +50,14 @@ def _run_silent_clean(mode: str) -> int:
     return 0 if summary["failed"] == 0 else 1
 
 
+def _run_cli(scan: bool, clean_preset: str | None, report: str | None) -> int:
+    from disk_cleaner_app.services.cli_clean import run_cli_scan_clean
+
+    if clean_preset:
+        return run_cli_scan_clean(preset=clean_preset, clean=True, report_path=report)
+    return run_cli_scan_clean(clean=False, report_path=report)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="DiskCleaner Pro")
     parser.add_argument(
@@ -61,6 +73,18 @@ def main() -> None:
         help="не запускать GUI (только с --smart-clean)",
     )
     parser.add_argument(
+        "--scan", action="store_true",
+        help="сканировать preset и показать размеры, без удаления",
+    )
+    parser.add_argument(
+        "--clean", metavar="PRESET", choices=("safe", "deep-safe"),
+        help="скан + очистка preset'а (safe или deep-safe), без GUI",
+    )
+    parser.add_argument(
+        "--report", metavar="PATH",
+        help="записать JSON-отчёт (с --scan или --clean)",
+    )
+    parser.add_argument(
         "--self-test", action="store_true",
         help="проверить сборку, записать отчёт в %%TEMP%% и выйти",
     )
@@ -72,6 +96,9 @@ def main() -> None:
         from disk_cleaner_app.selftest import run_self_test
 
         raise SystemExit(run_self_test())
+
+    if args.scan or args.clean:
+        raise SystemExit(_run_cli(args.scan, args.clean, args.report))
 
     if args.smart_clean:
         from disk_cleaner_app.services.auto_clean import DEEP_SAFE_MODE, SMART_MODE

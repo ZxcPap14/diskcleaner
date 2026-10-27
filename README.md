@@ -79,6 +79,24 @@ pip install -r requirements.txt
 python -m disk_cleaner_app
 ```
 
+## Командная строка
+
+```powershell
+python -m disk_cleaner_app --scan
+                      # размеры 🟢-целей, без удаления
+python -m disk_cleaner_app --clean safe --report out.json
+                      # скан + тихая очистка + JSON-отчёт
+python -m disk_cleaner_app --clean deep-safe
+                      # слой A: обновление Windows, DISM-логи, кэши GPU и т.п.
+python -m disk_cleaner_app --self-test
+                      # проверка сборки (для установщика)
+```
+
+Коды выхода: `0` — успех, `1` — есть ошибки очистки, `2` — неизвестный
+пресет. Очистка идёт через тот же движок, что и GUI: белый список,
+возрастные фильтры, слой D — в корзину. Слои C/D из CLI не доступны:
+они требуют осознанного выбора в интерфейсе.
+
 ## Разработка
 
 ```powershell
