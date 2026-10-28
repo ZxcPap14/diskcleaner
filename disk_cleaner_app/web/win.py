@@ -89,18 +89,44 @@ def set_dark_frame(window, dark: bool = True) -> None:
         log.debug("DWMWA_USE_IMMERSIVE_DARK_MODE недоступен", exc_info=True)
 
 
+def _on_ui(window, fn) -> None:
+    """Выполнить fn в потоке интерфейса WinForms.
+
+    Захват мыши (SetCapture) и модальный цикл перемещения живут в потоке
+    окна: вызов ReleaseCapture из потока pywebview ничего не снимает, и
+    окно «не замечает» движение мыши. Поэтому таскание и ресайз — только
+    через BeginInvoke в поток формы.
+    """
+    form = window.native
+    try:
+        from System import Action
+
+        form.BeginInvoke(Action(fn))
+    except Exception:
+        log.warning("Не удалось выполнить действие в потоке окна", exc_info=True)
+        fn()
+
+
 def begin_drag(window) -> None:
-    h = wintypes.HWND(handle(window))
-    _user32.ReleaseCapture()
-    _user32.SendMessageW(h, _WM_NCLBUTTONDOWN, _HTCAPTION, _cursor_lparam())
+    def drag() -> None:
+        _user32.ReleaseCapture()
+        _user32.SendMessageW(
+            wintypes.HWND(handle(window)), _WM_NCLBUTTONDOWN, _HTCAPTION,
+            _cursor_lparam(),
+        )
+
+    _on_ui(window, drag)
 
 
 def begin_resize(window, edge: str) -> None:
-    h = wintypes.HWND(handle(window))
-    _user32.ReleaseCapture()
-    _user32.SendMessageW(
-        h, _WM_NCLBUTTONDOWN, _HT.get(edge, _HTCAPTION), _cursor_lparam()
-    )
+    def resize() -> None:
+        _user32.ReleaseCapture()
+        _user32.SendMessageW(
+            wintypes.HWND(handle(window)), _WM_NCLBUTTONDOWN,
+            _HT.get(edge, _HTCAPTION), _cursor_lparam(),
+        )
+
+    _on_ui(window, resize)
 
 
 def toggle_maximize(window) -> bool:

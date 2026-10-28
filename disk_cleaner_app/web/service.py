@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -22,11 +23,13 @@ from disk_cleaner_app.models.config import ConfigManager
 from disk_cleaner_app.models.history import HistoryManager
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.models.target import LAYERS, layer_hint, layer_title
-from disk_cleaner_app.services.cleaner import CleanEngine, CleanOptions
+from disk_cleaner_app.services.cleaner import CleanEngine, CleanOptions, CleanResult
 from disk_cleaner_app.services.elevation import is_admin
 from disk_cleaner_app.services.planner import OperationPlan
 from disk_cleaner_app.services.restore_point import create_restore_point
 from disk_cleaner_app.services.scanner import ScanEngine
+
+log = logging.getLogger(__name__)
 
 Progress = Callable[[int, int], None]
 
@@ -292,6 +295,7 @@ class DeepService:
 
         def worker() -> None:
             results: list[dict[str, Any]] = []
+            raw: list[CleanResult] = []
             started = time.perf_counter()
             try:
                 if bool(self.config.get("restore_point", False)):
@@ -299,6 +303,7 @@ class DeepService:
                 for index, result in enumerate(
                     self.clean_engine.clean_plan(plan, options, None), start=1
                 ):
+                    raw.append(result)
                     results.append({
                         "name": result.cleaner.name,
                         "status": result.status,
@@ -307,6 +312,7 @@ class DeepService:
                         "freed_text": format_bytes(result.freed),
                     })
                     progress(index, plan.action_count, results[-1])
+                self._save_history(raw)
             finally:
                 self.busy = ""
                 done({
@@ -316,3 +322,31 @@ class DeepService:
                 })
 
         threading.Thread(target=worker, daemon=True, name="deep-clean").start()
+
+    def _save_history(self, results: list[CleanResult]) -> None:
+        """Сохранить операцию в историю — иначе страница «История» пустует."""
+        if not results:
+            return
+        try:
+            payload = [
+                {
+                    "id": r.cleaner.id,
+                    "name": r.cleaner.name,
+                    "layer": r.cleaner.layer,
+                    "status": r.status,
+                    "planned": r.planned,
+                    "freed": r.freed,
+                    "removed": r.removed,
+                    "remaining": r.remaining,
+                    "recycled": r.recycled,
+                    "confidence": r.confidence,
+                    "volumes": list(r.volumes),
+                    "note": r.note,
+                    "errors": r.errors[:3],
+                }
+                for r in results
+            ]
+            freed = sum(r.freed for r in results)
+            self.history.add_operation(payload, bytes_freed=freed, op_type="deep")
+        except Exception:
+            log.warning("Не удалось сохранить историю очистки", exc_info=True)

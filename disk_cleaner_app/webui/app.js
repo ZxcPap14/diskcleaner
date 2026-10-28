@@ -56,6 +56,21 @@ const VIEWS = {
     title: "Дубликаты",
     sub: "Одинаковые файлы: покажем и удалим лишние копии",
   },
+  disks: {
+    el: "viewDisks",
+    title: "Диски",
+    sub: "Занятость томов, прогноз и состояние железа",
+  },
+  analyzer: {
+    el: "viewAnalyzer",
+    title: "Анализ",
+    sub: "Крупные папки, файлы, расширения и treemap",
+  },
+  settings: {
+    el: "viewSettings",
+    title: "Настройки",
+    sub: "Тема, правила, история, расписание и обновления",
+  },
 };
 
 let current = "home";
@@ -65,6 +80,13 @@ let programs = null;
 let startup = null;
 let startupSearch = "";
 let dup = null;
+let disks = null;
+let ana = null;
+let anaMode = "";
+let anaTreemapOn = false;
+let setst = null;
+let setSelRule = "";
+let setSelWl = "";
 const dupChecked = new Set();
 const dupCollapsed = new Set();
 
@@ -138,6 +160,9 @@ function showView(id) {
   if (id === "programs") loadPrograms();
   if (id === "startup") loadStartup();
   if (id === "dup") loadDup();
+  if (id === "disks") loadDisks();
+  if (id === "analyzer") loadAnalyzer();
+  if (id === "settings") loadSettings();
 }
 
 /* ── главная ──────────────────────────────────────── */
@@ -415,13 +440,15 @@ function renderDup() {
   $("#dupList").innerHTML = dup.groups.map((group) => {
     const collapsed = dupCollapsed.has(group.id);
     const files = group.files.map((file) => {
-      const checked = file.original || dupChecked.has(file.path);
+      const locked = !!file.locked;
+      const checked = file.original || (!locked && dupChecked.has(file.path));
       return `
         <label class="dup-file">
-          <input type="checkbox" data-dup-file="${esc(file.path)}"${checked ? " checked" : ""}${file.original ? " disabled" : ""} />
+          <input type="checkbox" data-dup-file="${esc(file.path)}"${checked ? " checked" : ""}${file.original || locked ? " disabled" : ""} />
           <span class="dup-name">${esc(file.name)}</span>
           <span class="dup-path">${esc(file.dir)}</span>
           ${file.original ? `<span class="dup-tag">оригинал</span>` : ""}
+          ${locked ? `<span class="dup-tag" title="Путь защищён белым списком">🔒 белый список</span>` : ""}
         </label>`;
     }).join("");
     return `
@@ -429,7 +456,7 @@ function renderDup() {
         <div class="dup-head" data-dup-group="${group.id}">
           ${glyph("E70D", "chev")}
           <span class="dup-name">${esc(group.name)}</span>
-          <span class="dup-meta">${group.count} файлов · ${group.size_text}</span>
+          <span class="dup-meta">${group.count} файлов · ${group.size_text}${group.locked ? ` · 🔒 ${group.locked}` : ""}</span>
           <span class="dup-wasted">${group.wasted_text}</span>
         </div>
         <div class="dup-files">${files}</div>
@@ -467,6 +494,401 @@ function confirmDupDelete() {
           closeModal();
           status("Удаляем копии…", "busy");
           await api().dup_delete(paths, $("#dupRecycle").checked);
+        },
+      },
+    ],
+  });
+}
+
+/* ── диски ────────────────────────────────────────── */
+
+function renderDisks() {
+  const data = disks;
+  if (!data) return;
+  $("#volCount").textContent = String(data.volumes.length);
+  $("#volGrid").innerHTML = data.volumes.map((vol) => {
+    const cls = vol.percent_used >= 92 ? "crit" : vol.percent_used >= 80 ? "warn" : "";
+    return `
+      <div class="vol-card ${cls}">
+        <div class="vol-top">
+          <span class="vol-name">${esc(vol.name)}</span>
+          <span class="vol-free"><b>${vol.free_text}</b> свободно</span>
+        </div>
+        <div class="vol-bar"><span style="width:${vol.percent_used}%"></span></div>
+        <div class="vol-meta">занято ${vol.used_text} из ${vol.total_text} · ${vol.percent_used}%</div>
+        ${vol.forecast ? `<div class="vol-forecast">${esc(vol.forecast)}</div>` : ""}
+      </div>`;
+  }).join("");
+
+  $("#diskEmpty").hidden = data.disks.length > 0 || data.busy;
+  $("#diskChip").textContent = data.busy
+    ? "читаем SMART…"
+    : data.smart_ready ? `${data.disks.length} дисков` : "нет данных";
+  $("#diskList").innerHTML = data.disks.map((disk) => `
+    <div class="disk-row" title="${esc(disk.summary)}">
+      <div class="disk-name">
+        <b>${esc(disk.model)}</b>
+        <span>${esc([disk.media, disk.bus, disk.hours, disk.wear].filter(Boolean).join(" · "))}</span>
+      </div>
+      <span class="disk-cell">${disk.size_text}</span>
+      <span class="disk-cell">${esc(disk.temperature || "—")}</span>
+      <span><span class="disk-badge ${disk.health}">${esc(disk.health_label)}</span></span>
+    </div>`).join("");
+}
+
+async function loadDisks(force = false) {
+  disks = await api().disks_state();
+  renderDisks();
+  if (force || !disks.smart_ready) await api().disks_smart();
+}
+
+/* ── анализ ───────────────────────────────────────── */
+
+function anaChipText(text) {
+  $("#anaChip").textContent = text;
+}
+
+async function loadAnalyzer() {
+  ana = await api().analyzer_state();
+  renderAnalyzerShell();
+  if (anaMode) anaRun(anaMode, false);
+}
+
+function renderAnalyzerShell() {
+  const data = ana;
+  if (!data) return;
+  $("#anaDrive").innerHTML = data.drives
+    .map((d) => `<option value="${esc(d.root)}"${d.root === data.drive ? " selected" : ""}>${esc(d.name)}</option>`)
+    .join("");
+  $("#anaSize").innerHTML = data.size_choices
+    .map((c) => `<option value="${c.mb}">${esc(c.label)}</option>`).join("");
+  $("#anaAge").innerHTML = data.age_choices
+    .map((c) => `<option value="${c.days}">${esc(c.label)}</option>`).join("");
+}
+
+async function anaDriveChange(drive) {
+  ana = await api().analyzer_set_drive(drive);
+  renderAnalyzerShell();
+  anaResetResult();
+  status(`Диск: ${drive}`);
+}
+
+function anaResetResult() {
+  $("#anaList").innerHTML = "";
+  $("#anaHead").hidden = true;
+  $("#anaEmpty").hidden = false;
+  $("#anaFileFilters").hidden = true;
+  $("#anaExtCard").hidden = true;
+  $("#anaTreemapCard").hidden = true;
+  $("#anaRemoveEmpty").hidden = true;
+}
+
+async function anaRun(mode, force = true) {
+  anaMode = mode;
+  anaTreemapOn = false;
+  anaChipText("анализ…");
+  $("#anaStop").hidden = false;
+  $("#anaRemoveEmpty").hidden = true;
+  if (force) anaResetResult();
+  await api().analyzer_run(mode, force);
+}
+
+async function anaShowTreemap() {
+  anaMode = "";
+  anaTreemapOn = true;
+  anaChipText("treemap…");
+  anaResetResult();
+  $("#anaTreemapCard").hidden = false;
+  $("#anaCrumb").textContent = ana ? ana.drive : "";
+  await api().analyzer_treemap("", false);
+}
+
+async function anaApplyFilters() {
+  const ext = $("#anaExt").value || "";
+  const sizeMb = Number($("#anaSize").value) || 10;
+  const ageDays = Number($("#anaAge").value) || 0;
+  const report = await api().analyzer_filter(ext, sizeMb, ageDays);
+  renderFileRows(report);
+}
+
+function renderFileRows(report) {
+  $("#anaHead").hidden = false;
+  $("#anaHead").innerHTML = [
+    '<span class="ana-num">#</span>',
+    '<span class="ana-size">Размер</span>',
+    "<span>Изменён</span>",
+    "<span>Путь</span>",
+  ].join("");
+  $("#anaEmpty").hidden = report.rows.length > 0;
+  $("#anaFilterInfo").textContent = `подходит ${report.matched} · ${report.matched_text}`;
+  $("#anaList").innerHTML = report.rows.map((f) => `
+    <div class="ana-row ana-file" title="${esc(f.path)}">
+      <span class="ana-num">${f.index}</span>
+      <span class="ana-size">${esc(f.size_text)}</span>
+      <span class="ana-num">${esc(f.modified_text)} · ${esc(f.age_text)}</span>
+      <span class="p">${esc(f.path)}</span>
+    </div>`).join("");
+}
+
+function renderAnalyzerDone(p) {
+  anaChipText(
+    p.cancelled ? "остановлено"
+      : p.cached ? `кэш ${p.when || ""} · «Обновить» для повтора`
+        : p.mode === "files" ? `${p.total_files} файлов · ${p.total_text}`
+          : p.mode === "empty" ? `пустых папок: ${p.count}`
+            : `${(p.rows || []).length} папок`,
+  );
+  $("#anaStop").hidden = true;
+  $("#anaTreemapCard").hidden = true;
+
+  if (p.mode === "files") {
+    $("#anaFileFilters").hidden = false;
+    $("#anaExtCard").hidden = false;
+    renderExtCard(p.extensions || []);
+    anaApplyFilters();
+    return;
+  }
+
+  $("#anaFileFilters").hidden = true;
+  $("#anaExtCard").hidden = true;
+  const rows = p.rows || [];
+  if (p.mode === "top") {
+    $("#anaHead").hidden = false;
+    $("#anaHead").innerHTML = [
+      '<span class="ana-num">#</span>',
+      "<span>Папка</span>",
+      "<span>Расположение</span>",
+      '<span class="ana-size">Размер</span>',
+    ].join("");
+    $("#anaList").innerHTML = rows.map((r) => `
+      <div class="ana-row ana-top" title="${esc(r.path)}">
+        <span class="ana-num">${r.index}</span>
+        <span><b>${esc(r.name)}</b></span>
+        <span class="p">${esc(r.path)}</span>
+        <span class="ana-size">${esc(r.size_text)}</span>
+      </div>`).join("");
+    $("#anaEmpty").hidden = rows.length > 0;
+  } else if (p.mode === "empty") {
+    $("#anaHead").hidden = false;
+    $("#anaHead").innerHTML = [`<span>Пустые папки: ${p.count || 0}${p.hidden ? ` (показаны 200)` : ""}</span>`].join("");
+    $("#anaList").innerHTML = rows.map((r) => `
+      <div class="ana-row ana-paths" title="${esc(r.path)}">
+        <span class="path">${esc(r.path)}</span>
+      </div>`).join("");
+    $("#anaEmpty").hidden = rows.length > 0;
+    $("#anaRemoveEmpty").hidden = !(p.count > 0);
+  }
+}
+
+function renderExtCard(chips) {
+  $("#anaExtChips").innerHTML = chips.length
+    ? chips.map((c) => `
+      <span class="chip">${esc(c.label)} · ${esc(c.size_text)} · ${c.percent}%</span>`).join("")
+    : '<span class="chip muted-chip">нет файлов выше порога</span>';
+  const current = $("#anaExt").value;
+  $("#anaExt").innerHTML =
+    '<option value="">Все расширения</option>' +
+    chips.map((c) => `<option value="${esc(c.extension)}">${esc(c.label)} · ${esc(c.size_text)}</option>`).join("");
+  if ([...$("#anaExt").options].some((o) => o.value === current)) $("#anaExt").value = current;
+}
+
+/* treemap: раскладка squarify в JS */
+function tmLayout(nodes, x, y, w, h) {
+  const total = nodes.reduce((s, n) => s + n.val, 0) || 1;
+  const scale = (w * h) / total;
+  const items = nodes.map((n) => ({ ...n, a: n.val * scale })).filter((n) => n.a > 0.5);
+  const out = [];
+  let idx = 0;
+  let X = x, Y = y, W = w, H = h;
+  const worst = (row, area, side) => {
+    const th = area / side;
+    return Math.max(...row.map((it) => {
+      const len = it.a / th;
+      return Math.max(len / th, th / len);
+    }));
+  };
+  while (idx < items.length) {
+    const side = Math.min(W, H);
+    const row = [items[idx]];
+    let rowArea = row[0].a;
+    let best = worst(row, rowArea, side);
+    idx++;
+    while (idx < items.length) {
+      const cand = [...row, items[idx]];
+      const wr = worst(cand, rowArea + items[idx].a, side);
+      if (wr <= best) { row.push(items[idx]); rowArea += items[idx].a; best = wr; idx++; }
+      else break;
+    }
+    if (W >= H) {
+      const th = rowArea / H;
+      let cy = Y;
+      for (const it of row) {
+        const ih = it.a / th;
+        out.push({ ...it, x: X, y: cy, w: th, h: ih });
+        cy += ih;
+      }
+      X += th; W -= th;
+    } else {
+      const th = rowArea / W;
+      let cx = X;
+      for (const it of row) {
+        const iw = it.a / th;
+        out.push({ ...it, x: cx, y: Y, w: iw, h: th });
+        cx += iw;
+      }
+      Y += th; H -= th;
+    }
+  }
+  return out;
+}
+
+function renderTreemap(p) {
+  anaChipText(`${p.nodes.length} элементов`);
+  $("#anaBack").disabled = !p.can_back;
+  $("#anaCrumb").textContent = p.path;
+  const box = $("#anaTreemapBox");
+  const W = box.clientWidth || 800;
+  const H = box.clientHeight || 420;
+  const nodes = p.nodes.map((n) => ({ ...n, val: n.percent }));
+  const rects = tmLayout(nodes, 0, 0, W, H);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  for (const r of rects) {
+    const g = document.createElementNS(ns, "g");
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", r.x + 0.5); rect.setAttribute("y", r.y + 0.5);
+    rect.setAttribute("width", Math.max(0, r.w - 1.5)); rect.setAttribute("height", Math.max(0, r.h - 1.5));
+    rect.setAttribute("rx", 3);
+    rect.setAttribute("class", `tm-rect${r.is_dir ? "" : " leaf"}`);
+    rect.setAttribute("fill", "var(--accent)");
+    rect.setAttribute("fill-opacity", (0.12 + Math.min(0.55, r.percent / 100 * 0.9)).toFixed(2));
+    if (r.is_dir) {
+      rect.addEventListener("click", () => {
+        anaChipText("treemap…");
+        api().analyzer_treemap(r.path, false);
+      });
+      rect.addEventListener("dblclick", () => api().analyzer_open(r.path));
+    }
+    g.appendChild(rect);
+    if (r.w > 52 && r.h > 26) {
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", r.x + 6); label.setAttribute("y", r.y + 15);
+      label.setAttribute("class", "tm-label");
+      label.textContent = r.name.length > Math.floor(r.w / 7)
+        ? r.name.slice(0, Math.max(1, Math.floor(r.w / 7) - 1)) + "…" : r.name;
+      g.appendChild(label);
+      if (r.h > 40) {
+        const sub = document.createElementNS(ns, "text");
+        sub.setAttribute("x", r.x + 6); sub.setAttribute("y", r.y + 28);
+        sub.setAttribute("class", "tm-sub");
+        sub.textContent = `${r.size_text} · ${r.percent}%`;
+        g.appendChild(sub);
+      }
+    }
+    svg.appendChild(g);
+  }
+  box.innerHTML = "";
+  box.appendChild(svg);
+}
+
+/* ── настройки ────────────────────────────────────── */
+
+async function loadSettings() {
+  setst = await api().settings_state();
+  renderSettings();
+}
+
+async function exportReport(kind) {
+  const result = await settingsGuard(() => api().export_report(kind), "Экспорт не удался");
+  if (result && result.ok) status(`Отчёт сохранён: ${result.path}`);
+}
+
+function renderSettings() {
+  const s = setst;
+  if (!s) return;
+  $("#setTheme").value = s.theme;
+  $("#setRecycle").checked = s.to_recycle;
+  $("#setSafe").checked = s.safe_mode;
+  $("#setRestore").checked = s.restore_point;
+  $("#setThreshold").value = s.threshold;
+  $("#setAutostart").checked = s.autostart;
+  $("#setUpdateSource").value = s.update_source;
+  $("#setMode").value = s.schedule.mode;
+  $("#setSchedNote").textContent = s.schedule.exists
+    ? `✅ Задание активно: ${s.schedule.mode_text}, раз в неделю.`
+    : "Задание не создано.";
+  const hist = s.history;
+  $("#setHistNote").textContent =
+    `Операций: ${hist.count} · освобождено всего: ${hist.total_text}\n` +
+    hist.recent.map((r) => `• ${r.when} — ${r.targets} целей, ${r.freed_text}`).join("\n");
+  $("#setRules").innerHTML = s.rules.length ? s.rules.map((r) => `
+    <div class="rule-row${r.id === setSelRule ? " selected" : ""}" data-rule-id="${esc(r.id)}">
+      <span>${esc(r.name)}</span>
+      <span>${esc(r.safety_label)}</span>
+      <span class="path">${esc(r.path)}</span>
+    </div>`).join("")
+    : '<div class="hist-note">Правил пока нет.</div>';
+  $("#setWhitelist").innerHTML = s.whitelist.length ? s.whitelist.map((p) => `
+    <div class="rule-row${p === setSelWl ? " selected" : ""}" data-wl-path="${esc(p)}">
+      <span class="path" style="grid-column:1/-1;">${esc(p)}</span>
+    </div>`).join("")
+    : '<div class="hist-note">Список пуст — эти пути никогда не попадут в план очистки.</div>';
+}
+
+async function applySettings(state, note) {
+  setst = state;
+  if (state.theme) {
+    document.documentElement.dataset.theme = state.theme === "light" ? "light" : "dark";
+  }
+  renderSettings();
+  if (note) status(note);
+}
+
+async function settingsGuard(fn, failText) {
+  try {
+    return await fn();
+  } catch (error) {
+    status(`${failText}: ${error}`, "err");
+    return null;
+  }
+}
+
+function ruleDialog(rule) {
+  const editing = !!rule;
+  openModal({
+    title: editing ? "Изменить правило" : "Новое правило",
+    body: `
+      <div class="note">Путь будет проверен правилами безопасности перед добавлением.</div>
+      <div class="line"><b>Название</b></div>
+      <input type="text" class="input" id="dlgRuleName" style="width:100%"
+             value="${esc(rule ? rule.name : "")}">
+      <div class="line" style="margin-top:10px;"><b>Путь (папка или файл)</b></div>
+      <input type="text" class="input" id="dlgRulePath" style="width:100%"
+             value="${esc(rule ? rule.path : "")}">
+      <div class="line" style="margin-top:10px;"><b>Уровень риска</b></div>
+      <select class="select" id="dlgRuleSafety">
+        <option value="🟢">Безопасно</option>
+        <option value="🟡" selected>Осторожно</option>
+        <option value="🔴">Продвинутый</option>
+      </select>`,
+    wide: true,
+    buttons: [
+      { label: "Отмена", style: "secondary", action: closeModal },
+      {
+        label: "Сохранить",
+        style: "primary",
+        action: async () => {
+          const name = $("#dlgRuleName").value.trim();
+          const path = $("#dlgRulePath").value.trim();
+          const safety = $("#dlgRuleSafety").value;
+          const state = await settingsGuard(
+            () => api().rule_save(editing ? rule.id : "", name, path, safety),
+            "Правило не сохранено",
+          );
+          if (!state) return;
+          closeModal();
+          await applySettings(state, editing ? "Правило изменено" : "Правило добавлено");
         },
       },
     ],
@@ -953,6 +1375,49 @@ window.dc = {
       "",
     );
   },
+  disksSmart(payload) {
+    if (!payload) return;
+    disks = payload;
+    if (current === "disks") {
+      renderDisks();
+      status(`SMART прочитан: дисков ${payload.disks.length}`, "");
+    }
+  },
+  analyzerDone(payload) {
+    if (!payload || current !== "analyzer") return;
+    renderAnalyzerDone(payload);
+    status(payload.cancelled ? "Анализ остановлен" : "Анализ завершён", "");
+  },
+  analyzerEmptied(payload) {
+    if (!payload || current !== "analyzer") return;
+    status(`Удалено пустых папок: ${payload.removed}`, "");
+    const errors = (payload.errors || []).map((line) => `<li>${esc(line)}</li>`).join("");
+    if (payload.report) renderAnalyzerDone({ ...payload.report, mode: "empty" });
+    if (errors) {
+      openModal({
+        title: "Часть папок не удалена",
+        body: `<div class="note"><ul>${errors}</ul></div>`,
+        buttons: [{ label: "Понятно", style: "primary", action: closeModal }],
+      });
+    }
+  },
+  analyzerTreemap(payload) {
+    if (!payload || current !== "analyzer") return;
+    renderTreemap(payload);
+    status(`Treemap: ${payload.nodes.length} элементов`, "");
+  },
+  elevateFailed(message) {
+    status(message || "Не удалось получить права администратора", "err");
+  },
+  updateResult(payload) {
+    if (!payload) return;
+    const note = $("#setUpdateNote");
+    if (!note) return;
+    const message = payload.message
+      + (payload.status === "available" && payload.url ? ` Страница: ${payload.url}` : "");
+    note.textContent = message;
+    status(message, payload.status === "error" ? "err" : "");
+  },
   dupDeleted(result) {
     if (result.state) {
       dup = result.state;
@@ -1043,7 +1508,9 @@ function bind() {
       return;
     }
 
-    const nav = event.target.closest("[data-view]");
+    // body тоже носит data-view (для CSS), поэтому исключаем его — иначе
+    // эта ветка перехватывает ЛЮБОЙ клик и до кнопок шапки дело не доходит.
+    const nav = event.target.closest("[data-view]:not(body)");
     if (nav) {
       showView(nav.dataset.view);
       return;
@@ -1065,16 +1532,18 @@ function bind() {
       return;
     }
 
-    if (event.target.closest("[data-drag]") || event.target.id === "titlebar") {
-      api().win_drag();
-      return;
-    }
-
     if (event.target.classList.contains("scrim")) closeModal();
   });
 
   document.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
+    // Тащим окно за шапку: WM_NCLBUTTONDOWN работает только при зажатой
+    // кнопке, поэтому перетаскивание — на mousedown, а не на click.
+    if (event.target.closest("[data-drag]") || event.target.id === "titlebar") {
+      event.preventDefault();
+      api().win_drag();
+      return;
+    }
     const grip = event.target.closest("[data-edge]");
     if (grip) {
       event.preventDefault();
@@ -1148,6 +1617,240 @@ function bind() {
   });
 
   $("#btnScan").addEventListener("click", startScan);
+  $("#diskRefresh").addEventListener("click", () => loadDisks(true));
+  $("#pillAdmin").addEventListener("click", () => {
+    openModal({
+      title: "Права администратора",
+      body: `<div class="note">Перезапустить приложение с правами администратора?
+        Нужны они для системных целей глубокой очистки, SMART-атрибутов и VSS.
+        Текущее окно закроется.</div>`,
+      buttons: [
+        { label: "Отмена", style: "secondary", action: closeModal },
+        {
+          label: "Перезапустить",
+          style: "primary",
+          action: async () => {
+            closeModal();
+            status("Запрашиваю UAC…", "busy");
+            await api().elevate();
+          },
+        },
+      ],
+    });
+  });
+
+  // ── анализ ──
+  $("#anaTop").addEventListener("click", () => anaRun("top", true));
+  $("#anaFiles").addEventListener("click", () => anaRun("files", true));
+  $("#anaEmpty").addEventListener("click", () => anaRun("empty", true));
+  $("#anaTreemapBtn").addEventListener("click", anaShowTreemap);
+  $("#anaRefresh").addEventListener("click", () => {
+    if (anaTreemapOn) {
+      anaChipText("treemap…");
+      api().analyzer_treemap("", false);
+    } else if (anaMode) anaRun(anaMode, true);
+  });
+  $("#anaStop").addEventListener("click", async () => {
+    await api().analyzer_stop();
+    anaChipText("останавливаем…");
+  });
+  $("#anaDrive").addEventListener("change", (e) => anaDriveChange(e.target.value));
+  $("#anaExt").addEventListener("change", anaApplyFilters);
+  $("#anaSize").addEventListener("change", anaApplyFilters);
+  $("#anaAge").addEventListener("change", anaApplyFilters);
+  $("#anaReset").addEventListener("click", () => {
+    $("#anaExt").value = "";
+    $("#anaSize").value = "10";
+    $("#anaAge").value = "0";
+    anaApplyFilters();
+  });
+  $("#anaBack").addEventListener("click", () => {
+    anaChipText("treemap…");
+    api().analyzer_treemap("", true);
+  });
+  $("#anaRemoveEmpty").addEventListener("click", () => {
+    const chip = $("#anaChip").textContent || "";
+    const count = Number((chip.match(/пустых папок: (\d+)/) || [])[1] || 0);
+    openModal({
+      title: "Пустые папки",
+      body: `<div class="note">Удалить пустые папки?<br>
+        Удаляются только папки без файлов и подпапок, корень сканирования защищён.</div>`,
+      buttons: [
+        { label: "Отмена", style: "secondary", action: closeModal },
+        {
+          label: "Удалить",
+          style: "danger",
+          action: async () => {
+            closeModal();
+            anaChipText("удаляем…");
+            $("#anaRemoveEmpty").hidden = true;
+            await api().analyzer_remove_empty();
+          },
+        },
+      ],
+    });
+  });
+
+  // ── настройки ──
+  $("#setTheme").addEventListener("change", async (e) => {
+    const state = await settingsGuard(() => api().settings_set("theme", e.target.value), "Тема не сохранена");
+    if (state) await applySettings(state, "Тема применена");
+  });
+  for (const [id, key] of [
+    ["setRecycle", "to_recycle"],
+    ["setSafe", "safe_mode"],
+    ["setRestore", "restore_point"],
+  ]) {
+    $(`#${id}`).addEventListener("change", async (e) => {
+      const state = await settingsGuard(() => api().settings_set(key, e.target.checked), "Не сохранено");
+      if (state) await applySettings(state, "Сохранено");
+    });
+  }
+  $("#setThreshold").addEventListener("change", async (e) => {
+    const state = await settingsGuard(
+      () => api().settings_set("deep_threshold_gb", e.target.value), "Порог не сохранён",
+    );
+    if (state) await applySettings(state, "Порог сохранён");
+  });
+  $("#setAutostart").addEventListener("change", async (e) => {
+    const state = await settingsGuard(() => api().autostart_set(e.target.checked), "Автозапуск не изменён");
+    if (state) await applySettings(state, "Автозапуск обновлён");
+    else e.target.checked = !e.target.checked;
+  });
+  $("#setDataDir").addEventListener("click", () => api().open_special("data"));
+  $("#setLog").addEventListener("click", async () => {
+    await settingsGuard(() => api().open_special("log"), "Не удалось открыть лог");
+  });
+  $("#setClearHistory").addEventListener("click", () => {
+    openModal({
+      title: "Очистка истории",
+      body: '<div class="note">Удалить всю историю очисток? Это не удаляет файлы с диска.</div>',
+      buttons: [
+        { label: "Отмена", style: "secondary", action: closeModal },
+        {
+          label: "Удалить",
+          style: "danger",
+          action: async () => {
+            closeModal();
+            const state = await settingsGuard(() => api().history_clear(), "Не удалось очистить");
+            if (state) await applySettings(state, "История очищена");
+          },
+        },
+      ],
+    });
+  });
+  $("#setExportJson").addEventListener("click", () => exportReport("json"));
+  $("#setExportCsv").addEventListener("click", () => exportReport("csv"));
+  $("#setRules").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-rule-id]");
+    if (!row) return;
+    setSelRule = row.dataset.ruleId;
+    renderSettings();
+  });
+  $("#setRuleAdd").addEventListener("click", () => ruleDialog(null));
+  $("#setRuleEdit").addEventListener("click", () => {
+    const rule = (setst.rules || []).find((r) => r.id === setSelRule);
+    if (!rule) {
+      status("Выберите правило в списке", "err");
+      return;
+    }
+    ruleDialog(rule);
+  });
+  $("#setRuleDelete").addEventListener("click", () => {
+    const rule = (setst.rules || []).find((r) => r.id === setSelRule);
+    if (!rule) {
+      status("Выберите правило в списке", "err");
+      return;
+    }
+    openModal({
+      title: "Удаление правила",
+      body: `<div class="note">Удалить правило «${esc(rule.name)}»?<br>
+        Файлы на диске не удаляются — правило исчезнет из списка целей.</div>`,
+      buttons: [
+        { label: "Отмена", style: "secondary", action: closeModal },
+        {
+          label: "Удалить",
+          style: "danger",
+          action: async () => {
+            closeModal();
+            const state = await settingsGuard(() => api().rule_delete(rule.id), "Не удалось удалить");
+            if (state) {
+              setSelRule = "";
+              await applySettings(state, "Правило удалено");
+            }
+          },
+        },
+      ],
+    });
+  });
+  $("#setWlAdd").addEventListener("click", async () => {
+    const path = $("#setWlInput").value.trim();
+    if (!path) return;
+    const state = await settingsGuard(() => api().whitelist_add(path), "Путь не добавлен");
+    if (state) {
+      $("#setWlInput").value = "";
+      await applySettings(state, "Путь добавлен в белый список");
+    }
+  });
+  $("#setWhitelist").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-wl-path]");
+    if (!row) return;
+    setSelWl = row.dataset.wlPath;
+    renderSettings();
+  });
+  $("#setWlRemove").addEventListener("click", async () => {
+    if (!setSelWl) {
+      status("Выберите путь в списке", "err");
+      return;
+    }
+    const state = await settingsGuard(() => api().whitelist_remove(setSelWl), "Не удалось удалить");
+    if (state) {
+      setSelWl = "";
+      await applySettings(state, "Путь убран из белого списка");
+    }
+  });
+  $("#setSchedInstall").addEventListener("click", async () => {
+    const state = await settingsGuard(
+      () => api().schedule_install($("#setDay").value, $("#setTime").value.trim(), $("#setMode").value),
+      "Не удалось создать задание",
+    );
+    if (state) await applySettings(state, "Задание создано");
+  });
+  $("#setSchedRemove").addEventListener("click", async () => {
+    const state = await settingsGuard(() => api().schedule_remove(), "Не удалось удалить задание");
+    if (state) await applySettings(state, "Задание удалено");
+  });
+  $("#setCfgExport").addEventListener("click", async () => {
+    const result = await settingsGuard(() => api().config_export(), "Экспорт не удался");
+    if (result && result.ok) status(`Настройки экспортированы: ${result.path}`);
+  });
+  $("#setCfgImport").addEventListener("click", async () => {
+    const result = await settingsGuard(() => api().config_import(), "Импорт не удался");
+    if (result && result.ok) {
+      const stats = result.stats;
+      await loadSettings();
+      openModal({
+        title: "Импорт настроек",
+        body: `<div class="note">Настроек применено: <b>${stats.config}</b> ·
+          правил добавлено: <b>${stats.rules}</b>${
+          (stats.skipped || []).length
+            ? `<br><br>Пропущено:<ul>${stats.skipped.slice(0, 8).map((s) => `<li>${esc(s)}</li>`).join("")}</ul>`
+            : ""
+        }</div>`,
+        buttons: [{ label: "Готово", style: "primary", action: closeModal }],
+      });
+    }
+  });
+  $("#setUpdateSource").addEventListener("change", async (e) => {
+    const state = await settingsGuard(
+      () => api().settings_set("update_source", e.target.value.trim()), "Источник не сохранён",
+    );
+    if (state) await applySettings(state, "Источник обновлений сохранён");
+  });
+  $("#setCheckUpdates").addEventListener("click", async () => {
+    $("#setUpdateNote").textContent = "Проверяю обновления…";
+    await api().check_updates();
+  });
   $("#btnStop").addEventListener("click", stopScan);
   $("#btnSafe").addEventListener("click", async () => applyPayload(await api().safe_set()));
   $("#btnNone").addEventListener("click", async () => applyPayload(await api().deselect_all()));

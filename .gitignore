@@ -26,3 +26,6 @@ Thumbs.db
 
 # ZCode session files
 .zcode/
+
+# Рабочие данные ассистента
+.workbuddy-ai/

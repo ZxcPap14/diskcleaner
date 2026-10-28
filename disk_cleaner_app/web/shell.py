@@ -9,14 +9,25 @@ http-сервером pywebview — поэтому ES-модули и относ
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
 import webview
 
-from disk_cleaner_app.models.config import ConfigManager
-from disk_cleaner_app.web import win
-from disk_cleaner_app.web.api import Api
+# Метка веб-сборки: selftest понижает Tk-проверки до некритичных.
+os.environ.setdefault("DISKCLEANER_WEB", "1")
+
+# Портативный режим применяем ДО импорта моделей: CONFIG_DIR читает
+# переменную окружения один раз при импорте models.config.
+if "--portable" in sys.argv:
+    from disk_cleaner_app.services.portable import apply_portable
+
+    apply_portable()
+
+from disk_cleaner_app.models.config import ConfigManager  # noqa: E402
+from disk_cleaner_app.web import win  # noqa: E402
+from disk_cleaner_app.web.api import Api  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +63,14 @@ def create(debug: bool = False) -> tuple[webview.Window, Api]:
         win.prepare(window)
         win.set_dark_frame(window, dark)
 
+    def on_closed() -> None:
+        # destroy() закрывает окно, но процесс могут держать фоновые потоки
+        # pythonnet и WebView2: без этого приложение оставалось в диспетчере
+        # задач и его приходилось завершать вручную.
+        os._exit(0)
+
     window.events.shown += on_shown
+    window.events.closed += on_closed
     return window, api
 
 
@@ -65,12 +83,28 @@ def run(debug: bool = False) -> None:
     webview.start(debug=debug, private_mode=True)
 
 
+def _self_test() -> int:
+    from disk_cleaner_app.selftest import run_self_test
+
+    return run_self_test()
+
+
 def main() -> None:
     """Точка входа для pyproject-скрипта и сборки."""
     logging.basicConfig(level=logging.INFO)
+    if "--self-test" in sys.argv:
+        # Собранный DiskCleanerWeb.exe проверяют тем же ключом, что и
+        # основной exe: без этого здесь открылось бы окно.
+        raise SystemExit(_self_test())
     run(debug=False)
 
 
 if __name__ == "__main__":
+    # PyInstaller запускает shell.py именно как __main__, так что проверка
+    # аргументов нужна и здесь, а не только в main().
     logging.basicConfig(level=logging.INFO)
-    run(debug=True)
+    if "--self-test" in sys.argv:
+        raise SystemExit(_self_test())
+    # DevTools — только по явному --dev: собранный exe должен открываться
+    # без панели разработчика.
+    run(debug="--dev" in sys.argv)

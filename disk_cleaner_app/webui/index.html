@@ -16,7 +16,7 @@
   </div>
   <div class="tb-fill" data-drag></div>
   <div class="tb-badges">
-    <span class="pill" id="pillAdmin" hidden>&#xE72E; без прав администратора</span>
+    <button class="pill" id="pillAdmin" hidden title="Перезапустить с правами администратора">&#xE72E; без прав администратора</button>
   </div>
   <div class="tb-caption">
     <button class="cap" data-cap="min" title="Свернуть">&#xE921;</button>
@@ -286,6 +286,38 @@
       </div>
     </section>
 
+    <!-- Диски -->
+    <section class="view" id="viewDisks" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <span class="stat-inline">томов <b id="volCount">0</b></span>
+          <div class="sep"></div>
+          <button class="btn secondary" id="diskRefresh">
+            <span class="ico">&#xE72C;</span>Обновить
+          </button>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="diskChip">читаем SMART…</span>
+        </section>
+
+        <section class="vol-grid" id="volGrid"></section>
+
+        <section class="card targets">
+          <div class="tables-head disk-head">
+            <span class="col-name">Диск</span>
+            <span class="col-cap">Объём</span>
+            <span class="col-temp">Температура</span>
+            <span class="col-health">Состояние</span>
+          </div>
+          <div id="diskList"></div>
+          <div class="empty" id="diskEmpty" hidden>
+            <div class="empty-glyph">&#xEDA2;</div>
+            <div class="empty-title">Нет данных о железе</div>
+            <div class="empty-sub">SMART недоступен: нужны права администратора или диск не отвечает.</div>
+          </div>
+        </section>
+      </div>
+    </section>
+
     <!-- Дубликаты -->
     <section class="view" id="viewDup" hidden>
       <div class="page-body">
@@ -327,6 +359,175 @@
             <span class="switch-text">В корзину</span>
           </label>
           <button class="btn primary" id="dupDelete" disabled>Удалить копии</button>
+        </section>
+      </div>
+    </section>
+
+    <!-- Анализ -->
+    <section class="view" id="viewAnalyzer" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <select class="select" id="anaDrive"></select>
+          <button class="btn secondary" id="anaTop">Топ папок</button>
+          <button class="btn secondary" id="anaFiles">Файлы и фильтры</button>
+          <button class="btn secondary" id="anaEmpty">Пустые папки</button>
+          <button class="btn primary" id="anaTreemapBtn">Treemap</button>
+          <button class="btn secondary icon" id="anaStop" title="Остановить" hidden>
+            <span class="glyph">&#xE71A;</span>
+          </button>
+          <button class="btn secondary" id="anaRefresh">Обновить</button>
+          <button class="btn danger" id="anaRemoveEmpty" hidden>Удалить пустые</button>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="anaChip">не запускали</span>
+        </section>
+
+        <section class="card toolbar" id="anaFileFilters" hidden>
+          <span class="stat-inline">фильтр</span>
+          <select class="select" id="anaExt"></select>
+          <select class="select" id="anaSize"></select>
+          <select class="select" id="anaAge"></select>
+          <button class="btn secondary" id="anaReset">Сброс</button>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="anaFilterInfo"></span>
+        </section>
+
+        <section class="card" id="anaExtCard" hidden>
+          <div class="chips" id="anaExtChips"></div>
+        </section>
+
+        <section class="card targets">
+          <div class="tables-head" id="anaHead" hidden></div>
+          <div id="anaList"></div>
+          <div class="empty" id="anaEmpty" hidden>
+            <div class="empty-glyph">&#xE721;</div>
+            <div class="empty-title">Нечего показать</div>
+            <div class="empty-sub">Выберите отчёт выше или постройте treemap.</div>
+          </div>
+        </section>
+
+        <section class="card" id="anaTreemapCard" hidden>
+          <div class="toolbar" style="border:0;padding-bottom:8px;">
+            <button class="btn secondary icon" id="anaBack" title="На уровень выше" disabled>
+              <span class="glyph">&#xE72B;</span>
+            </button>
+            <span class="muted" id="anaCrumb"></span>
+          </div>
+          <div class="treemap-box" id="anaTreemapBox"></div>
+          <div class="muted" style="font-size:11.5px;padding:8px 2px 0;">
+            Клик по папке — внутрь, кнопка «назад» — на уровень выше, двойной клик вне папки — открыть в проводнике.
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Настройки -->
+    <section class="view" id="viewSettings" hidden>
+      <div class="page-body">
+        <section class="card set-card">
+          <div class="set-title">Внешний вид и поведение</div>
+          <div class="set-row">
+            <div class="set-text"><b>Тема оформления</b><span>Применяется сразу</span></div>
+            <select class="select" id="setTheme">
+              <option value="dark">Тёмная</option>
+              <option value="light">Светлая</option>
+              <option value="system">Как в системе</option>
+            </select>
+          </div>
+          <label class="set-row">
+            <span class="set-text"><b>Перемещать удалённое в корзину</b>
+              <span>Корзина не освобождает место до своей очистки</span></span>
+            <input type="checkbox" id="setRecycle"><span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+          <label class="set-row">
+            <span class="set-text"><b>Безопасный режим</b>
+              <span>Показывать и выбирать только безопасные цели</span></span>
+            <input type="checkbox" id="setSafe"><span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+          <label class="set-row">
+            <span class="set-text"><b>Точка восстановления перед глубокой очисткой</b>
+              <span>Нужны права администратора; Windows создаёт точки не чаще раза в 24 ч</span></span>
+            <input type="checkbox" id="setRestore"><span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+          <div class="set-row">
+            <span class="set-text"><b>Порог свободного места для баннера</b>
+              <span>На главной появится предложение глубокой очистки. 0 — выключить, в ГБ</span></span>
+            <input type="text" class="input" id="setThreshold" style="width:80px;">
+          </div>
+        </section>
+
+        <section class="card set-card">
+          <div class="set-title">Автозапуск</div>
+          <label class="set-row">
+            <span class="set-text"><b>Запускать вместе с Windows</b>
+              <span>Запись в HKCU\…\Run, права администратора не нужны</span></span>
+            <input type="checkbox" id="setAutostart"><span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </section>
+
+        <section class="card set-card">
+          <div class="set-title">История и отчёты</div>
+          <div class="set-row" style="gap:8px;">
+            <button class="btn secondary" id="setDataDir">Папка данных</button>
+            <button class="btn secondary" id="setLog">Открыть лог</button>
+            <button class="btn secondary" id="setExportJson">Экспорт JSON</button>
+            <button class="btn secondary" id="setExportCsv">Экспорт CSV</button>
+            <div class="fill"></div>
+            <button class="btn danger" id="setClearHistory">Очистить историю</button>
+          </div>
+          <div class="hist-note" id="setHistNote"></div>
+        </section>
+
+        <section class="card set-card">
+          <div class="set-title">Пользовательские правила</div>
+          <div class="set-row" style="gap:8px;">
+            <button class="btn primary" id="setRuleAdd">Добавить</button>
+            <button class="btn secondary" id="setRuleEdit">Изменить</button>
+            <button class="btn danger" id="setRuleDelete">Удалить</button>
+          </div>
+          <div class="rules-list" id="setRules"></div>
+          <div class="muted" style="font-size:11.5px;">Системные каталоги и личные папки целиком добавить нельзя.</div>
+        </section>
+
+        <section class="card set-card">
+          <div class="set-title">Белый список путей</div>
+          <div class="set-row" style="gap:8px;">
+            <input type="text" class="input fill" id="setWlInput" placeholder="Например: D:\Projects\важное">
+            <button class="btn primary" id="setWlAdd">Добавить</button>
+            <button class="btn danger" id="setWlRemove">Удалить</button>
+          </div>
+          <div class="rules-list" id="setWhitelist"></div>
+        </section>
+
+        <section class="card set-card">
+          <div class="set-title">Расписание очистки</div>
+          <div class="set-row" style="gap:8px;">
+            <select class="select" id="setDay">
+              <option>ПН</option><option>ВТ</option><option>СР</option>
+              <option>ЧТ</option><option>ПТ</option><option>СБ</option>
+              <option selected>ВС</option>
+            </select>
+            <input type="text" class="input" id="setTime" value="09:00" style="width:80px;">
+            <select class="select" id="setMode">
+              <option value="smart">smart</option>
+              <option value="deep-safe">deep-safe</option>
+            </select>
+            <button class="btn primary" id="setSchedInstall">Создать задание</button>
+            <button class="btn danger" id="setSchedRemove">Удалить задание</button>
+          </div>
+          <div class="hist-note" id="setSchedNote"></div>
+        </section>
+
+        <section class="card set-card">
+          <div class="set-title">Резервная копия и обновления</div>
+          <div class="set-row" style="gap:8px;">
+            <button class="btn secondary" id="setCfgExport">Экспорт настроек</button>
+            <button class="btn secondary" id="setCfgImport">Импорт настроек</button>
+          </div>
+          <div class="set-row" style="gap:8px;">
+            <input type="text" class="input fill" id="setUpdateSource" placeholder="owner/repo или URL манифеста">
+            <button class="btn primary" id="setCheckUpdates">Проверить обновления</button>
+          </div>
+          <div class="hist-note" id="setUpdateNote"></div>
         </section>
       </div>
     </section>
