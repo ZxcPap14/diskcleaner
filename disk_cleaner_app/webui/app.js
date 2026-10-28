@@ -31,10 +31,21 @@ const VIEWS = {
     title: "Глубокая очистка",
     sub: "Каждый слой — отдельный уровень риска. Сначала анализ, потом очистка.",
   },
+  clean: {
+    el: "viewClean",
+    title: "Очистка",
+    sub: "Безопасное сканирование и удаление временных данных",
+  },
+  history: {
+    el: "viewHistory",
+    title: "История",
+    sub: "Что и когда удалялось",
+  },
 };
 
 let current = "home";
 let home = null;
+let hist = null;
 
 const state = {
   targets: [],
@@ -46,7 +57,15 @@ const state = {
   search: "",
   collapsed: new Set(),
   plan: null,
+  mode: "easy",
 };
+
+/* SAFETY: простой режим — только рекомендованные и безопасные цели. */
+const SAFETY_GROUPS = [
+  ["\u{1F7E2}", "Безопасные"],
+  ["\u{1F7E1}", "Требуют внимания"],
+  ["\u{1F534}", "Опасные"],
+];
 
 const glyph = (code, cls = "glyph") => `<span class="${cls}">&#x${code};</span>`;
 const esc = (text) => String(text ?? "").replace(/[&<>"]/g, (c) => (
@@ -92,7 +111,9 @@ function showView(id) {
   for (const item of document.querySelectorAll(".rail-item")) {
     item.classList.toggle("active", item.dataset.view === id);
   }
+  document.body.dataset.view = id;
   if (id === "home") loadHome();
+  if (id === "history") loadHistory();
 }
 
 /* ── главная ──────────────────────────────────────── */
@@ -181,6 +202,57 @@ async function loadHome() {
 async function pickDrive(drive) {
   renderHome(await api().home_drive(drive));
   status(`Диск ${drive}`);
+}
+
+/* ── история ──────────────────────────────────────── */
+
+function histChart(points) {
+  if (!points.length) {
+    return `<div class="trend-empty">Нет данных — журнал пока пуст.</div>`;
+  }
+  const width = 600;
+  const height = 92;
+  const pad = 4;
+  const max = Math.max(1, ...points.map((p) => p.bytes));
+  const step = width / points.length;
+  const barW = Math.min(48, Math.max(2, step - 8));
+  const bars = points.map((point, index) => {
+    const h = ((point.bytes / max) * (height - 24)) || 1;
+    const x = index * step + (step - barW) / 2;
+    const y = height - pad - h;
+    return `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2"><title>${point.day} · ${esc(point.text)}</title></rect>
+      <text class="axis" x="${(x + barW / 2).toFixed(1)}" y="${height - 1}" text-anchor="middle">${point.day}</text>`;
+  });
+  return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${bars.join("")}</svg>`;
+}
+
+function renderHistory() {
+  const type = $("#histType").value;
+  const all = (hist && hist.entries) || [];
+  const entries = type ? all.filter((entry) => entry.type === type) : all;
+  $("#histCount").textContent = hist ? hist.count : 0;
+  $("#histTotal").textContent = hist ? hist.total_text : "0 Б";
+  $("#histChart").innerHTML = histChart(hist ? hist.chart : []);
+  $("#histEmpty").hidden = entries.length > 0;
+  $("#histChip").textContent = entries.length
+    ? `${entries.length} из ${all.length}`
+    : "журнал пуст";
+  $("#histList").innerHTML = entries.map((entry) => `
+    <div class="hist-row" title="${esc(entry.details.map((d) => d.name).join(", "))}">
+      <span class="hist-date">${esc(entry.date)}</span>
+      <span class="hist-type">${esc(entry.type_label)}</span>
+      <span class="hist-items">${entry.items} цел.</span>
+      <span class="hist-size">${esc(entry.size_text)}</span>
+    </div>`).join("");
+}
+
+async function loadHistory() {
+  try {
+    hist = await api().history_state();
+    renderHistory();
+  } catch (error) {
+    status("Не удалось прочитать историю: " + error, "err");
+  }
 }
 
 /* ── слои ─────────────────────────────────────────── */
@@ -279,6 +351,46 @@ function renderTargets() {
   $("#groups").innerHTML = html;
 }
 
+/* ── страница «Очистка»: те же цели, но по уровню риска ── */
+
+function cleanMatches(target) {
+  if (state.mode === "easy" && !target.recommended) return false;
+  if (!state.search) return true;
+  const needle = state.search.toLowerCase();
+  return (target.name + " " + target.description).toLowerCase().includes(needle);
+}
+
+function renderClean() {
+  const groups = new Map();
+  for (const target of state.targets) {
+    if (!cleanMatches(target)) continue;
+    if (!groups.has(target.safety)) groups.set(target.safety, []);
+    groups.get(target.safety).push(target);
+  }
+  const order = SAFETY_GROUPS.map(([id]) => id);
+  const entries = [...groups.entries()].sort(
+    (a, b) => order.indexOf(a[0]) - order.indexOf(b[0]),
+  );
+
+  $("#cleanEmpty").hidden = entries.length > 0;
+  $("#cleanGroups").innerHTML = entries.map(([safety, items]) => {
+    const label = (SAFETY_GROUPS.find(([id]) => id === safety) || [safety, "Прочее"])[1];
+    const selected = items.filter((t) => t.selected).length;
+    const size = items.reduce((sum, t) => sum + (t.scanned ? t.size : 0), 0);
+    const collapsed = state.collapsed.has(safety);
+    return `
+      <div class="group${collapsed ? " collapsed" : ""}" data-group="${safety}">
+        <div class="group-head" data-toggle="${safety}">
+          ${glyph("E70D", "chev")}
+          <span class="g-title">${label}</span>
+          <span class="g-meta">${selected ? `выбрано ${selected} · ` : ""}${items.length} цел.</span>
+          <span class="g-size">${size ? bytes(size) : ""}</span>
+        </div>
+        <div class="group-body">${items.map(row).join("")}</div>
+      </div>`;
+  }).join("");
+}
+
 function row(target) {
   const tags = [];
   if (target.error) tags.push(`<span class="tag err">недоступно</span>`);
@@ -317,6 +429,9 @@ function renderSummary() {
     ? `найдено ${s.found_text} · целей ${s.scanned} из ${s.total}`
     : `не проанализировано · целей ${s.total}`;
   chip.classList.toggle("muted-chip", !s.scanned);
+  const cleanChip = $("#cleanChip");
+  cleanChip.textContent = chip.textContent;
+  cleanChip.classList.toggle("muted-chip", !s.scanned);
 
   $("#pillAdmin").hidden = state.admin;
   $("#statusMeta").textContent = `${s.total} целей · ${s.scanned} проанализировано`
@@ -327,6 +442,7 @@ function render() {
   renderLayers();
   renderMix();
   renderTargets();
+  renderClean();
   renderSummary();
 }
 
@@ -397,11 +513,39 @@ function closeModal() {
 
 /* ── сценарии ─────────────────────────────────────── */
 
+async function showPreview() {
+  const data = await api().preview();
+  if (!data) {
+    openModal({
+      title: "Предпросмотр",
+      body: `<div class="note">Отметьте цель с предпросмотром — покажем первые файлы внутри.</div>`,
+      buttons: [{ label: "Закрыть", kind: "secondary", action: closeModal }],
+    });
+    return;
+  }
+  const rows = data.files.length
+    ? data.files.map((f) => `<li>${f.is_dir ? "📁" : "📄"} ${esc(f.name)}${
+      f.size_text ? ` — ${f.size_text}` : ""}</li>`).join("")
+    : "<li>Папка пуста или недоступна</li>";
+  const foot = data.files.length
+    ? `Показаны первые ${data.files.length} элементов — удаляется содержимое целиком.`
+    : "";
+  openModal({
+    title: `Предпросмотр: ${esc(data.name)}`,
+    wide: true,
+    body: `<div class="note"><b>${esc(data.path)}</b><ul>${rows}</ul></div>${
+      foot ? `<div class="note">${foot}</div>` : ""}`,
+    buttons: [{ label: "Закрыть", kind: "secondary", action: closeModal }],
+  });
+}
+
 async function startScan() {
   if (state.busy) return;
   state.collapsed.clear();
   setProgress(null, "Анализ целей…");
   status("Анализ целей…", "busy");
+  for (const btn of document.querySelectorAll(".js-scan")) btn.disabled = true;
+  for (const btn of document.querySelectorAll(".js-stop")) btn.disabled = false;
   $("#btnStop").hidden = false;
   await api().scan();
 }
@@ -479,6 +623,8 @@ window.dc = {
     await applyPayload(payload);
     setProgress(null, null);
     $("#btnStop").hidden = true;
+    for (const btn of document.querySelectorAll(".js-scan")) btn.disabled = false;
+    for (const btn of document.querySelectorAll(".js-stop")) btn.disabled = true;
     const s = state.summary;
     status(
       s.scanned
@@ -639,12 +785,14 @@ function bind() {
 
   $("#search").addEventListener("input", (event) => {
     state.search = event.target.value.trim();
-    if (current !== "deep") showView("deep");
+    if (current !== "deep" && current !== "clean") showView("deep");
     renderTargets();
+    renderClean();
   });
 
   $("#homeDrive").addEventListener("change", (event) => pickDrive(event.target.value));
   $("#homeBannerBtn").addEventListener("click", () => showView("deep"));
+  $("#histType").addEventListener("change", renderHistory);
 
   $("#btnScan").addEventListener("click", startScan);
   $("#btnStop").addEventListener("click", stopScan);
@@ -652,6 +800,25 @@ function bind() {
   $("#btnNone").addEventListener("click", async () => applyPayload(await api().deselect_all()));
   $("#btnPlan").addEventListener("click", showPlan);
   $("#btnClean").addEventListener("click", showPlan);
+
+  for (const btn of document.querySelectorAll(".js-scan")) {
+    btn.addEventListener("click", startScan);
+  }
+  for (const btn of document.querySelectorAll(".js-stop")) {
+    btn.addEventListener("click", stopScan);
+  }
+
+  $("#cleanMode").addEventListener("click", (event) => {
+    const item = event.target.closest("[data-mode]");
+    if (!item) return;
+    state.mode = item.dataset.mode;
+    for (const other of document.querySelectorAll("#cleanMode .seg-item")) {
+      other.classList.toggle("on", other === item);
+    }
+    renderClean();
+  });
+
+  $("#btnPreview").addEventListener("click", showPreview);
 
   $("#optRecycle").addEventListener("change", async (event) => {
     await api().set_option("to_recycle", event.target.checked);

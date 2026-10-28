@@ -11,6 +11,7 @@ from typing import Any
 
 from disk_cleaner_app.web import win
 from disk_cleaner_app.web.dashboard import DashboardService
+from disk_cleaner_app.web.history import HistoryService
 from disk_cleaner_app.web.service import DeepService
 
 log = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ class Api:
         self._window: Any = None
         self._deep = DeepService()
         self._home = DashboardService(self._deep)
+        self._hist = HistoryService(self._deep.history)
 
     # ── запуск ───────────────────────────────────────
 
@@ -59,6 +61,12 @@ class Api:
 
     def deselect_all(self) -> dict[str, Any]:
         return self._deep.deselect_all()
+
+    def preview(self) -> dict[str, Any] | None:
+        return self._deep.preview()
+
+    def history_state(self) -> dict[str, Any]:
+        return self._hist.state()
 
     # ── анализ ───────────────────────────────────────
 

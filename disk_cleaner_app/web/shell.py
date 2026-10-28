@@ -39,6 +39,9 @@ def create(debug: bool = False) -> tuple[webview.Window, Api]:
         height=820,
         min_size=(1080, 720),
         frameless=True,
+        # pywebview иначе вешает перетаскивание окна на mousedown по всей
+        # странице; таскаем только за шапку через win_drag().
+        easy_drag=False,
         background_color="#202020" if dark else "#F3F3F3",
     )
     if window is None:

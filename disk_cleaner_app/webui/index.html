@@ -154,8 +154,91 @@
         </div>
       </section>
     </div>
+    </section>
 
-    <!-- Нижняя панель действий -->
+    <!-- Очистка -->
+    <section class="view" id="viewClean" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <div class="seg" id="cleanMode">
+            <button class="seg-item on" data-mode="easy">Простая</button>
+            <button class="seg-item" data-mode="advanced">Расширенная</button>
+          </div>
+          <div class="sep"></div>
+          <button class="btn primary js-scan">
+            <span class="glyph">&#xE773;</span><span>Сканировать</span>
+          </button>
+          <button class="btn secondary js-stop" disabled>Стоп</button>
+          <button class="btn subtle" id="btnPreview">Предпросмотр</button>
+          <div class="fill"></div>
+          <span class="chip" id="cleanChip">не проанализировано</span>
+        </section>
+
+        <section class="card targets">
+          <div class="tables-head">
+            <span class="col-name">Цель</span>
+            <span class="col-size">Размер</span>
+          </div>
+          <div id="cleanGroups"></div>
+          <div class="empty" id="cleanEmpty" hidden>
+            <div class="empty-glyph">&#xE9D9;</div>
+            <div class="empty-title">Пока ничего не найдено</div>
+            <div class="empty-sub">Нажмите «Сканировать» — приложение посчитает, сколько можно освободить.</div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- История -->
+    <section class="view" id="viewHistory" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <select class="select" id="histType">
+            <option value="">Все операции</option>
+            <option value="clean">Очистка</option>
+            <option value="deep">Глубокая очистка</option>
+            <option value="smart">Smart Clean</option>
+          </select>
+          <div class="sep"></div>
+          <span class="stat-inline"><b id="histCount">0</b> операций</span>
+          <span class="stat-inline">освобождено <b id="histTotal">0 Б</b></span>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="histChip">журнал пуст</span>
+        </section>
+
+        <section class="card histchart">
+          <div class="card-head"><span>Освобождено по дням</span></div>
+          <div id="histChart"></div>
+        </section>
+
+        <section class="card targets">
+          <div class="tables-head">
+            <span class="col-name">Операция</span>
+            <span class="col-size">Освобождено</span>
+          </div>
+          <div id="histList"></div>
+          <div class="empty" id="histEmpty" hidden>
+            <div class="empty-glyph">&#xE81C;</div>
+            <div class="empty-title">Журнал пуст</div>
+            <div class="empty-sub">Здесь появятся операции очистки — с датой, числом целей и освобождённым местом.</div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Раздел ещё не перенесён -->
+    <section class="view" id="viewSoon" hidden>
+      <div class="page-body">
+        <section class="card empty">
+          <div class="empty-glyph">&#xE946;</div>
+          <div class="empty-title" id="soonTitle">Раздел ещё в старом интерфейсе</div>
+          <div class="empty-sub">Этот экран пока открывается в Tk-версии приложения —
+            новые страницы появляются по одной.</div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Нижняя панель действий (общая для страниц очистки) -->
     <div class="actionbar">
       <div class="ab-left">
         <div class="ab-sum" id="abSum">Ничего не выбрано</div>
@@ -176,19 +259,6 @@
 
     <!-- Прогресс -->
     <div class="progress-line" id="progressLine" hidden><div class="bar" id="progressBar"></div></div>
-    </section>
-
-    <!-- Раздел ещё не перенесён -->
-    <section class="view" id="viewSoon" hidden>
-      <div class="page-body">
-        <section class="card empty">
-          <div class="empty-glyph">&#xE946;</div>
-          <div class="empty-title" id="soonTitle">Раздел ещё в старом интерфейсе</div>
-          <div class="empty-sub">Этот экран пока открывается в Tk-версии приложения —
-            новые страницы появляются по одной.</div>
-        </section>
-      </div>
-    </section>
   </main>
 </div>
 

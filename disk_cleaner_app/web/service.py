@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from disk_cleaner_app.cleaners.base import (
@@ -86,6 +87,33 @@ class DeepService:
             }
             for c in self.cleaners
         ]
+
+    def preview(self) -> dict[str, Any] | None:
+        """Первые файлы внутри выбранной цели с предпросмотром."""
+        with self._lock:
+            chosen = [
+                c for c in self.cleaners
+                if c.id in self.selected and c.can_preview and c.preview_path
+            ]
+        if not chosen:
+            return None
+        item = chosen[0]
+        root = Path(item.preview_path or "")
+        files: list[dict[str, Any]] = []
+        try:
+            for child in list(root.iterdir())[:50]:
+                try:
+                    size = child.stat().st_size if child.is_file() else 0
+                except OSError:
+                    size = 0
+                files.append({
+                    "name": child.name,
+                    "is_dir": child.is_dir(),
+                    "size_text": format_bytes(size) if size else "",
+                })
+        except OSError:
+            files = []
+        return {"name": item.name, "path": str(root), "files": files}
 
     def layers(self) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
