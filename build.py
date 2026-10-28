@@ -111,10 +111,13 @@ def build_command(
     uac_admin: bool = False,
     version_file: str | None = None,
     web: bool = False,
+    onedir: bool = False,
 ) -> list[str]:
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--onefile",
+        # onedir не распаковывает себя в %TEMP% при каждом запуске:
+        # старт почти мгновенный, ценой папки вместо одного файла.
+        "--onedir" if onedir else "--onefile",
         "--noconsole",
         "--clean",
         "--noconfirm",
@@ -122,13 +125,6 @@ def build_command(
         "--distpath", DIST_DIR,
         "--workpath", BUILD_DIR,
         "--specpath", BUILD_DIR,
-        "--collect-data", "customtkinter",
-        "--hidden-import", "customtkinter",
-        "--hidden-import", "squarify",
-        # pystray выбирает бэкенд динамически — без этого трей молча
-        # отсутствует в собранном exe.
-        "--hidden-import", "pystray",
-        "--hidden-import", "pystray._win32",
     ]
     if web:
         # pywebview грузит WinForms-бэкенд и WebView2-лоадер по имени
@@ -139,11 +135,27 @@ def build_command(
             "--hidden-import", "clr",
             "--hidden-import", "pythonnet",
         ]
+        # Веб-интерфейс живёт без Tk-стека, трея и Pillow — выкидываем их
+        # целиком: это примерно треть размера сборки.
+        for module in ("tkinter", "_tkinter", "customtkinter", "squarify",
+                       "pystray", "PIL"):
+            cmd += ["--exclude-module", module]
+    else:
+        cmd += [
+            "--collect-data", "customtkinter",
+            "--hidden-import", "customtkinter",
+            "--hidden-import", "squarify",
+            # pystray выбирает бэкенд динамически — без этого трей молча
+            # отсутствует в собранном exe.
+            "--hidden-import", "pystray",
+            "--hidden-import", "pystray._win32",
+        ]
     if os.path.exists(ICON_PATH):
         cmd += ["--icon", os.path.abspath(ICON_PATH)]
     assets_dir = os.path.abspath("assets")
-    if os.path.isdir(assets_dir):
+    if os.path.isdir(assets_dir) and not web:
         # Иконка трея лежит в assets; onefile кладёт её в _MEIPASS.
+        # Веб-сборке assets не нужны — иконка встроена через --icon.
         cmd += ["--add-data", f"{assets_dir}{os.pathsep}assets"]
     if version_file:
         cmd += ["--version-file", version_file]
@@ -173,13 +185,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="собрать новый интерфейс на WebView2 (DiskCleanerWeb.exe)",
     )
+    parser.add_argument(
+        "--onedir",
+        action="store_true",
+        help="папка вместо одного exe: быстрый старт без распаковки в %TEMP%",
+    )
     args = parser.parse_args(argv)
 
     clean_old_builds()
     version = project_version()
     version_file = write_version_file(version)
     cmd = build_command(
-        uac_admin=args.uac_admin, version_file=version_file, web=args.web
+        uac_admin=args.uac_admin, version_file=version_file, web=args.web,
+        onedir=args.onedir,
     )
 
     print("🛠️  Building", APP_NAME, f"v{version}", "...")
@@ -194,9 +212,12 @@ def main(argv: list[str] | None = None) -> int:
         print("❌ Build failed.")
         return result.returncode
 
-    exe_path = os.path.join(
-        DIST_DIR, "DiskCleanerWeb.exe" if args.web else f"{APP_NAME}.exe"
-    )
+    name = "DiskCleanerWeb" if args.web else APP_NAME
+    if args.onedir:
+        # onedir кладёт exe в подкаталог dist\<имя>\.
+        exe_path = os.path.join(DIST_DIR, name, f"{name}.exe")
+    else:
+        exe_path = os.path.join(DIST_DIR, f"{name}.exe")
     if not os.path.exists(exe_path):
         print("❌ Build finished, but exe not found:", exe_path)
         return 1

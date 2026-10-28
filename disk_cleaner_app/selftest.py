@@ -14,7 +14,6 @@ import shutil
 import sqlite3
 import sys
 import tempfile
-import tkinter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -32,6 +31,8 @@ def _check(name: str, func: Callable[[], str], *, critical: bool = True) -> dict
 
 
 def _check_tk() -> str:
+    import tkinter
+
     root = tkinter.Tk()
     try:
         root.withdraw()
@@ -49,6 +50,14 @@ def _check_imports() -> str:
     from disk_cleaner_app.ui import app  # noqa: F401
 
     return f"customtkinter {customtkinter.__version__}, squarify ok"
+
+
+def _check_web_imports() -> str:
+    import webview  # noqa: F401 - сам факт импорта и есть проверка
+
+    from disk_cleaner_app.services import planner  # noqa: F401
+
+    return "pywebview ok, planner ok"
 
 
 def _check_sqlite() -> str:
@@ -106,20 +115,27 @@ def _check_tray() -> str:
 def collect_checks() -> dict:
     from disk_cleaner_app import __version__
 
-    checks = {
-        "tk": _check("tk", _check_tk),
-        "imports": _check("imports", _check_imports),
-        "sqlite": _check("sqlite", _check_sqlite),
-        "config_write": _check("config_write", _check_config_write),
-        "temp_write": _check("temp_write", _check_temp_write),
-        "powershell": _check("powershell", _check_powershell, critical=False),
-        "tray": _check("tray", _check_tray, critical=False),
-        "admin": _check("admin", _check_admin, critical=False),
-    }
+    # Веб-сборка живёт без Tk/customtkinter/pystray: они из неё исключены,
+    # поэтому Tk-проверки заменяются на pywebview.
+    web_mode = os.environ.get("DISKCLEANER_WEB") == "1"
+    checks: dict = {}
+    if web_mode:
+        checks["web_imports"] = _check("web_imports", _check_web_imports)
+    else:
+        checks["tk"] = _check("tk", _check_tk)
+        checks["imports"] = _check("imports", _check_imports)
+    checks["sqlite"] = _check("sqlite", _check_sqlite)
+    checks["config_write"] = _check("config_write", _check_config_write)
+    checks["temp_write"] = _check("temp_write", _check_temp_write)
+    checks["powershell"] = _check("powershell", _check_powershell, critical=False)
+    if not web_mode:
+        checks["tray"] = _check("tray", _check_tray, critical=False)
+    checks["admin"] = _check("admin", _check_admin, critical=False)
     ok = all(item["ok"] for item in checks.values() if item["critical"])
     return {
         "app": "DiskCleaner Pro",
         "version": __version__,
+        "mode": "web" if web_mode else "tk",
         "ok": ok,
         "frozen": bool(getattr(sys, "frozen", False)),
         "executable": sys.executable,
