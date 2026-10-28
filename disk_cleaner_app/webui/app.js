@@ -46,12 +46,19 @@ const VIEWS = {
     title: "Программы",
     sub: "Установленные приложения, их размер и удаление",
   },
+  startup: {
+    el: "viewStartup",
+    title: "Автозагрузка",
+    sub: "Что запускается вместе с Windows",
+  },
 };
 
 let current = "home";
 let home = null;
 let hist = null;
 let programs = null;
+let startup = null;
+let startupSearch = "";
 
 const state = {
   targets: [],
@@ -121,6 +128,7 @@ function showView(id) {
   if (id === "home") loadHome();
   if (id === "history") loadHistory();
   if (id === "programs") loadPrograms();
+  if (id === "startup") loadStartup();
 }
 
 /* ── главная ──────────────────────────────────────── */
@@ -311,6 +319,53 @@ async function loadPrograms() {
   } catch (error) {
     status("Не удалось прочитать список программ: " + error, "err");
   }
+}
+
+/* ── автозагрузка ─────────────────────────────────── */
+
+function startMatches(item) {
+  if (!startupSearch) return true;
+  return item.name.toLowerCase().includes(startupSearch.toLowerCase());
+}
+
+function renderStartup() {
+  if (!startup) return;
+  const items = startup.items.filter(startMatches);
+  $("#startOn").textContent = startup.enabled;
+  $("#startOff").textContent = startup.disabled;
+  $("#startChip").textContent = `${startup.count} записей`;
+  $("#startEmpty").hidden = items.length > 0;
+  $("#startList").innerHTML = items.map((item) => `
+    <div class="start-row${item.enabled ? "" : " off"}" data-start="${esc(item.id)}">
+      <div class="start-name">
+        <b title="${esc(item.name)}">${esc(item.name)}</b>
+        <span title="${esc(item.command)}">${esc(item.command)}</span>
+      </div>
+      <span class="start-src">${esc(item.source)}</span>
+      <span>
+        <label class="switch">
+          <input type="checkbox" data-start-toggle="${esc(item.id)}"${item.enabled ? " checked" : ""} />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </span>
+    </div>`).join("");
+}
+
+async function loadStartup() {
+  try {
+    startup = await api().startup_state();
+    renderStartup();
+    status(`Автозагрузка: ${startup.enabled} включено, ${startup.disabled} отключено`, "");
+  } catch (error) {
+    status("Не удалось прочитать автозагрузку: " + error, "err");
+  }
+}
+
+async function toggleStartup(id, enabled) {
+  status(enabled ? "Включаю запись…" : "Отключаю запись…", "busy");
+  startup = await api().startup_toggle(id, enabled);
+  renderStartup();
+  status(enabled ? "Запись включена" : "Запись отключена", "");
 }
 
 function confirmUninstall(id) {
@@ -910,6 +965,15 @@ function bind() {
   $("#histType").addEventListener("change", renderHistory);
   $("#progSearch").addEventListener("input", renderPrograms);
   $("#progDrive").addEventListener("change", renderPrograms);
+
+  $("#startSearch").addEventListener("input", (event) => {
+    startupSearch = event.target.value.trim();
+    renderStartup();
+  });
+  $("#startList").addEventListener("change", (event) => {
+    const box = event.target.closest("[data-start-toggle]");
+    if (box) toggleStartup(box.dataset.startToggle, box.checked);
+  });
 
   $("#btnScan").addEventListener("click", startScan);
   $("#btnStop").addEventListener("click", stopScan);

@@ -15,6 +15,7 @@ from disk_cleaner_app.web.dashboard import DashboardService
 from disk_cleaner_app.web.history import HistoryService
 from disk_cleaner_app.web.programs import ProgramsService
 from disk_cleaner_app.web.service import DeepService
+from disk_cleaner_app.web.startup import StartupService
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class Api:
         self._hist = HistoryService(self._deep.history)
         self._prog = ProgramsService()
         self._prog_busy = False
+        self._startup = StartupService()
 
     # ── запуск ───────────────────────────────────────
 
@@ -76,6 +78,12 @@ class Api:
 
     def programs_state(self) -> dict[str, Any]:
         return self._prog.load()
+
+    def startup_state(self) -> dict[str, Any]:
+        return self._startup.load()
+
+    def startup_toggle(self, item_id: str, enabled: bool) -> dict[str, Any]:
+        return self._startup.toggle(item_id, enabled)
 
     def programs_measure(self) -> str:
         if self._prog_busy:

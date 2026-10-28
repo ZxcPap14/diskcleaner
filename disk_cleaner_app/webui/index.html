@@ -258,6 +258,34 @@
       </div>
     </section>
 
+    <!-- Автозагрузка -->
+    <section class="view" id="viewStartup" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <input class="field" id="startSearch" type="search" placeholder="Найти запись" />
+          <div class="sep"></div>
+          <span class="stat-inline">включено <b id="startOn">0</b></span>
+          <span class="stat-inline">отключено <b id="startOff">0</b></span>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="startChip">читаем реестр…</span>
+        </section>
+
+        <section class="card targets">
+          <div class="tables-head start-head">
+            <span class="col-name">Запись</span>
+            <span class="col-src">Источник</span>
+            <span class="col-act">Автозапуск</span>
+          </div>
+          <div id="startList"></div>
+          <div class="empty" id="startEmpty" hidden>
+            <div class="empty-glyph">&#xE945;</div>
+            <div class="empty-title">Ничего не найдено</div>
+            <div class="empty-sub">Записей автозагрузки с таким именем нет.</div>
+          </div>
+        </section>
+      </div>
+    </section>
+
     <!-- Раздел ещё не перенесён -->
     <section class="view" id="viewSoon" hidden>
       <div class="page-body">
