@@ -44,8 +44,8 @@
   <main class="page">
     <div class="page-head">
       <div>
-        <h1 id="pageTitle">Глубокая очистка</h1>
-        <p id="pageSub">Каждый слой — отдельный уровень риска. Сначала анализ, потом очистка.</p>
+        <h1 id="pageTitle">Главная</h1>
+        <p id="pageSub">Состояние системы и быстрые действия</p>
       </div>
       <div class="head-actions">
         <button class="btn subtle icon" id="btnStop" title="Остановить" hidden>
@@ -54,6 +54,67 @@
       </div>
     </div>
 
+    <!-- Главная -->
+    <section class="view" id="viewHome">
+      <div class="page-body">
+
+        <section class="card hero">
+          <div class="hero-ring">
+            <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+              <circle class="ring-track" cx="60" cy="60" r="52"></circle>
+              <circle class="ring-fill" id="ringFill" cx="60" cy="60" r="52"></circle>
+            </svg>
+            <div class="ring-label">
+              <span id="ringPercent">—</span>
+              <small>занято</small>
+            </div>
+          </div>
+          <div class="hero-info">
+            <div class="hero-label">Свободно на диске</div>
+            <div class="hero-free" id="homeFree">—</div>
+            <div class="hero-meta" id="homeMeta">Загрузка данных…</div>
+            <div class="hero-bar"><span id="homeBar"></span></div>
+          </div>
+          <div class="hero-side">
+            <select class="select" id="homeDrive"></select>
+            <div class="hero-stat">
+              <div class="stat-value" id="homeFreed">—</div>
+              <div class="stat-label">Очищено всего</div>
+            </div>
+            <div class="hero-stat">
+              <div class="stat-value" id="homeCount">—</div>
+              <div class="stat-label">Очисток выполнено</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card banner" id="homeBanner" hidden>
+          <span class="glyph banner-glyph">&#xE7BA;</span>
+          <span class="banner-text" id="homeBannerText"></span>
+          <button class="btn primary" id="homeBannerBtn">Глубокая очистка</button>
+        </section>
+
+        <section class="card trend">
+          <div class="trend-head">
+            <span class="label">Занятость по дням</span>
+            <span class="muted" id="trendMeta"></span>
+          </div>
+          <div class="trend-chart" id="trendChart"></div>
+          <div class="trend-foot" id="trendForecast"></div>
+        </section>
+
+        <section class="card topcard">
+          <div class="tables-head">
+            <span class="col-name">Крупнейшие цели</span>
+            <span class="col-size">Размер</span>
+          </div>
+          <div id="homeTop"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Глубокая очистка -->
+    <section class="view" id="viewDeep" hidden>
     <div class="page-body" id="pageBody">
 
       <!-- Панель действий -->
@@ -115,6 +176,19 @@
 
     <!-- Прогресс -->
     <div class="progress-line" id="progressLine" hidden><div class="bar" id="progressBar"></div></div>
+    </section>
+
+    <!-- Раздел ещё не перенесён -->
+    <section class="view" id="viewSoon" hidden>
+      <div class="page-body">
+        <section class="card empty">
+          <div class="empty-glyph">&#xE946;</div>
+          <div class="empty-title" id="soonTitle">Раздел ещё в старом интерфейсе</div>
+          <div class="empty-sub">Этот экран пока открывается в Tk-версии приложения —
+            новые страницы появляются по одной.</div>
+        </section>
+      </div>
+    </section>
   </main>
 </div>
 

@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from disk_cleaner_app.web import win
+from disk_cleaner_app.web.dashboard import DashboardService
 from disk_cleaner_app.web.service import DeepService
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class Api:
     def __init__(self) -> None:
         self._window: Any = None
         self._deep = DeepService()
+        self._home = DashboardService(self._deep)
 
     # ── запуск ───────────────────────────────────────
 
@@ -30,10 +32,19 @@ class Api:
             "workers": [{"icon": "E80F", "label": "Главная"}],
             "theme": self._deep.theme,
             "state": self._deep.state(),
+            "home": self._home.state(),
         }
 
     def state(self) -> dict[str, Any]:
         return self._deep.state()
+
+    # ── главная ──────────────────────────────────────
+
+    def home_state(self) -> dict[str, Any]:
+        return self._home.state()
+
+    def home_drive(self, drive: str) -> dict[str, Any]:
+        return self._home.set_drive(drive)
 
     # ── выбор ────────────────────────────────────────
 

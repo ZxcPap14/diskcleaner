@@ -27,6 +27,11 @@ _HT = {
 }
 _SW_MAXIMIZE = 3
 _SW_RESTORE = 9
+_SWP_NOSIZE = 0x0001
+_SWP_NOMOVE = 0x0002
+_SWP_NOZORDER = 0x0004
+_SWP_NOACTIVATE = 0x0010
+_SWP_FRAMECHANGED = 0x0020
 
 
 def handle(window) -> int:
@@ -34,13 +39,41 @@ def handle(window) -> int:
     return int(window.native.Handle.ToInt32())
 
 
+def _cursor_lparam() -> int:
+    """lParam для WM_NCLBUTTONDOWN — экранные координаты курсора.
+
+    С нулём Windows получает точку (0,0), считает её лежащей вне окна и
+    вместо ресайза начинает перетаскивать окно целиком.
+    """
+    pt = wintypes.POINT()
+    _user32.GetCursorPos(ctypes.byref(pt))
+    return ((pt.y & 0xFFFF) << 16) | (pt.x & 0xFFFF)
+
+
+class _Margins(ctypes.Structure):
+    _fields_ = [
+        ("left", ctypes.c_int), ("right", ctypes.c_int),
+        ("top", ctypes.c_int), ("bottom", ctypes.c_int),
+    ]
+
+
 def prepare(window) -> None:
     """Вернуть ресайз и убрать системный заголовок."""
-    h = handle(window)
+    h = wintypes.HWND(handle(window))
     try:
-        style = _user32.GetWindowLongW(wintypes.HWND(h), _GWL_STYLE)
+        style = _user32.GetWindowLongW(h, _GWL_STYLE)
         style = (style | _WS_THICKFRAME) & ~_WS_CAPTION
-        _user32.SetWindowLongW(wintypes.HWND(h), _GWL_STYLE, style)
+        _user32.SetWindowLongW(h, _GWL_STYLE, style)
+        # Без пересчёта рамки Windows не видит новых границ: у края окна нет
+        # зоны ресайза, и захват края превращается в перетаскивание.
+        _user32.SetWindowPos(
+            h, None, 0, 0, 0, 0,
+            _SWP_NOSIZE | _SWP_NOMOVE | _SWP_NOZORDER
+            | _SWP_NOACTIVATE | _SWP_FRAMECHANGED,
+        )
+        # Растягиваем стекло на всю рамку — иначе Win10 рисует вокруг окна
+        # чёрную полосу толщиной с зону ресайза.
+        _dwm.DwmExtendFrameIntoClientArea(h, ctypes.byref(_Margins(-1, -1, -1, -1)))
     except Exception:
         log.warning("Не удалось перестроить стиль окна", exc_info=True)
 
@@ -57,16 +90,16 @@ def set_dark_frame(window, dark: bool = True) -> None:
 
 
 def begin_drag(window) -> None:
-    h = handle(window)
+    h = wintypes.HWND(handle(window))
     _user32.ReleaseCapture()
-    _user32.SendMessageW(wintypes.HWND(h), _WM_NCLBUTTONDOWN, _HTCAPTION, 0)
+    _user32.SendMessageW(h, _WM_NCLBUTTONDOWN, _HTCAPTION, _cursor_lparam())
 
 
 def begin_resize(window, edge: str) -> None:
-    h = handle(window)
+    h = wintypes.HWND(handle(window))
     _user32.ReleaseCapture()
     _user32.SendMessageW(
-        wintypes.HWND(h), _WM_NCLBUTTONDOWN, _HT.get(edge, _HTCAPTION), 0
+        h, _WM_NCLBUTTONDOWN, _HT.get(edge, _HTCAPTION), _cursor_lparam()
     )
 
 

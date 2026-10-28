@@ -829,6 +829,132 @@ body.is-max .cap[data-cap="max"] { color: var(--text-3); }
   border-top: 1px solid var(--stroke-soft);
 }
 
+/* ── Переключение страниц ─────────────────────────── */
+
+.view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.view > .page-body { flex: 1; }
+#viewHome .page-body { overflow-y: auto; }
+#viewSoon .page-body { justify-content: center; }
+
+/* ── Главная: диск, история, прогноз ──────────────── */
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 16px 20px;
+}
+
+.hero-ring { position: relative; flex: 0 0 auto; width: 120px; height: 120px; }
+.hero-ring svg { display: block; transform: rotate(-90deg); }
+.ring-track { fill: none; stroke: var(--ctrl); stroke-width: 10; }
+.ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 326.7;
+  stroke-dashoffset: 326.7;
+  transition: stroke-dashoffset 420ms var(--ease);
+}
+.ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ring-label span { font-size: 22px; font-weight: 600; letter-spacing: -.5px; }
+.ring-label small { font-size: 11px; color: var(--text-3); }
+
+.hero-info { flex: 1; min-width: 0; }
+.hero-label { font-size: 12.5px; color: var(--text-3); }
+.hero-free {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.hero-meta { font-size: 12.5px; color: var(--text-2); }
+.hero-bar {
+  margin-top: 10px;
+  height: 6px;
+  max-width: 420px;
+  border-radius: 3px;
+  background: var(--ctrl);
+  overflow: hidden;
+}
+.hero-bar > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 420ms var(--ease);
+}
+
+.hero-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.hero-stat { text-align: right; }
+.stat-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 11.5px; color: var(--text-3); }
+
+.select {
+  height: 32px;
+  min-width: 116px;
+  padding: 0 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  background: var(--ctrl);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: default;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  background: rgba(240, 196, 107, .10);
+  border-color: rgba(240, 196, 107, .38);
+}
+.banner-glyph { font-size: 16px; color: #F0C46B; }
+.banner-text { flex: 1; font-size: 12.5px; color: var(--text-2); }
+
+.trend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 10px;
+}
+.trend-head { display: flex; align-items: baseline; gap: 10px; }
+.trend-head .label { font-size: 12.5px; font-weight: 600; }
+.trend-head .muted { margin-left: auto; font-size: 12px; }
+.trend-chart { height: 104px; }
+.trend-chart svg { display: block; width: 100%; height: 100%; }
+.trend-chart .area { fill: var(--accent-soft); }
+.trend-chart .line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.trend-foot, .trend-empty { font-size: 12px; color: var(--text-3); }
+.trend-empty { display: flex; align-items: center; height: 100%; }
+
+.topcard { display: flex; flex-direction: column; overflow: hidden; }
+.topcard .row { cursor: default; }
+
+
 /* ── Ручки ресайза ────────────────────────────────── */
 
 .grip { position: fixed; z-index: 90; }

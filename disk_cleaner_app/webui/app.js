@@ -20,6 +20,22 @@ const LAYER_COLOR = {
   A: "var(--l-a)", B: "var(--l-b)", C: "var(--l-c)", D: "var(--l-d)", E: "var(--l-e)",
 };
 
+const VIEWS = {
+  home: {
+    el: "viewHome",
+    title: "Главная",
+    sub: "Состояние системы и быстрые действия",
+  },
+  deep: {
+    el: "viewDeep",
+    title: "Глубокая очистка",
+    sub: "Каждый слой — отдельный уровень риска. Сначала анализ, потом очистка.",
+  },
+};
+
+let current = "home";
+let home = null;
+
 const state = {
   targets: [],
   layers: [],
@@ -50,9 +66,121 @@ function status(text, kind = "") {
 
 function renderNav() {
   $("#railList").innerHTML = NAV.map(([id, icon, label]) => `
-    <div class="rail-item${id === "deep" ? " active" : ""}" data-view="${id}" tabindex="0">
+    <div class="rail-item${id === current ? " active" : ""}" data-view="${id}" tabindex="0">
       ${glyph(icon)}<span class="rail-label">${label}</span>
     </div>`).join("");
+}
+
+function navLabel(id) {
+  const found = NAV.find((item) => item[0] === id);
+  return found ? found[2] : "";
+}
+
+function showView(id) {
+  current = id;
+  for (const view of Object.values(VIEWS)) $("#" + view.el).hidden = true;
+  $("#viewSoon").hidden = !!VIEWS[id];
+  if (VIEWS[id]) {
+    $("#" + VIEWS[id].el).hidden = false;
+    $("#pageTitle").textContent = VIEWS[id].title;
+    $("#pageSub").textContent = VIEWS[id].sub;
+  } else {
+    $("#pageTitle").textContent = navLabel(id) || "Раздел";
+    $("#pageSub").textContent = "Экран ещё не перенесён на новый интерфейс";
+    $("#soonTitle").textContent = `«${navLabel(id)}» пока в Tk-версии`;
+  }
+  for (const item of document.querySelectorAll(".rail-item")) {
+    item.classList.toggle("active", item.dataset.view === id);
+  }
+  if (id === "home") loadHome();
+}
+
+/* ── главная ──────────────────────────────────────── */
+
+const RING_LENGTH = 2 * Math.PI * 52;
+
+function trendChart(points) {
+  if (points.length < 2) {
+    return `<div class="trend-empty">Точки появляются после очисток и запусков — нужно хотя бы две.</div>`;
+  }
+  const width = 600;
+  const height = 100;
+  const pad = 6;
+  const values = points.map((p) => p.free);
+  const min = Math.min(...values);
+  const span = Math.max(1, Math.max(...values) - min);
+  const step = width / (points.length - 1);
+  const coords = values.map((value, index) => [
+    index * step,
+    height - pad - ((value - min) / span) * (height - 2 * pad),
+  ]);
+  const line = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const area = `0,${height} ${line} ${width},${height}`;
+  return `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      <polygon class="area" points="${area}"></polygon>
+      <polyline class="line" points="${line}"></polyline>
+    </svg>`;
+}
+
+function renderHome(data) {
+  if (!data) return;
+  home = data;
+
+  const hasDisk = data.total > 0;
+  $("#homeFree").textContent = data.free_text;
+  $("#homeMeta").textContent = hasDisk
+    ? `Занято ${data.used_text} из ${data.total_text} · свободно ${data.percent_free}%`
+    : "Нет данных о диске";
+  $("#homeBar").style.width = `${data.percent_used}%`;
+  $("#ringPercent").textContent = hasDisk ? `${data.percent_used}%` : "—";
+  $("#ringFill").style.strokeDashoffset =
+    String(RING_LENGTH * (1 - (hasDisk ? data.percent_used : 0) / 100));
+
+  $("#homeFreed").textContent = data.freed_text;
+  $("#homeCount").textContent = String(data.clean_count);
+
+  const drive = $("#homeDrive");
+  drive.innerHTML = data.drives
+    .map((name) => `<option${name === data.drive ? " selected" : ""}>${esc(name)}</option>`)
+    .join("");
+
+  $("#trendChart").innerHTML = trendChart(data.trend);
+  $("#trendMeta").textContent = data.trend.length
+    ? `${data.trend[0].label} → ${data.trend[data.trend.length - 1].label} · точек ${data.trend.length}`
+    : "нет данных";
+  $("#trendForecast").textContent = data.forecast;
+
+  $("#homeBanner").hidden = !data.threshold.visible;
+  $("#homeBannerText").textContent = data.threshold.text;
+
+  const top = $("#homeTop");
+  if (!data.top.length) {
+    top.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Пока нет данных</div>
+        <div class="empty-sub">Запустите анализ — здесь появятся самые крупные цели.</div>
+      </div>`;
+    return;
+  }
+  top.innerHTML = data.top.map((target) => `
+    <div class="row" data-top="${esc(target.id)}" title="${esc(target.name)}">
+      <span class="row-main"><span class="row-name">${esc(target.name)}</span></span>
+      <span class="row-size">${esc(target.size_text)}</span>
+    </div>`).join("");
+}
+
+async function loadHome() {
+  try {
+    renderHome(await api().home_state());
+  } catch (error) {
+    status("Не удалось прочитать состояние диска: " + error, "err");
+  }
+}
+
+async function pickDrive(drive) {
+  renderHome(await api().home_drive(drive));
+  status(`Диск ${drive}`);
 }
 
 /* ── слои ─────────────────────────────────────────── */
@@ -362,6 +490,7 @@ window.dc = {
       await applyPayload(await api().safe_set());
       status(`Анализ завершён: найдено ${s.found_text} · выбран безопасный набор`);
     }
+    loadHome();
   },
   planStarted() { status("Строим план…", "busy"); },
   planReady(plan) {
@@ -391,6 +520,7 @@ window.dc = {
   async cleanDone(payload) {
     setProgress(null, null);
     await applyPayload(payload.state);
+    loadHome();
     const freed = payload.results.reduce((sum, r) => sum + r.freed, 0);
     status(`Очистка завершена за ${payload.seconds} с · освобождено ${bytes(freed)}`);
     const list = payload.results.map((r) => (
@@ -462,9 +592,14 @@ function bind() {
 
     const nav = event.target.closest("[data-view]");
     if (nav) {
-      const id = nav.dataset.view;
-      if (id === "deep") return;
-      status("Раздел «" + nav.textContent.trim() + "» ещё переносится на новый интерфейс");
+      showView(nav.dataset.view);
+      return;
+    }
+
+    const top = event.target.closest("[data-top]");
+    if (top) {
+      showView("deep");
+      toggleTarget(top.dataset.top, true);
       return;
     }
 
@@ -504,8 +639,12 @@ function bind() {
 
   $("#search").addEventListener("input", (event) => {
     state.search = event.target.value.trim();
+    if (current !== "deep") showView("deep");
     renderTargets();
   });
+
+  $("#homeDrive").addEventListener("change", (event) => pickDrive(event.target.value));
+  $("#homeBannerBtn").addEventListener("click", () => showView("deep"));
 
   $("#btnScan").addEventListener("click", startScan);
   $("#btnStop").addEventListener("click", stopScan);
@@ -525,10 +664,14 @@ function bind() {
 async function boot() {
   renderNav();
   bind();
+  // До первого ответа питона страница уже показана: иначе клик по разделу,
+  // сделанный за пару секунд загрузки, откатывался бы назад на «Главную».
+  showView("home");
   try {
     const data = await api().bootstrap();
     if (data.theme === "light") document.documentElement.dataset.theme = "light";
     await applyPayload(data.state);
+    renderHome(data.home);
     $("#optRecycle").checked = !!data.state.to_recycle;
     status("Готов к работе · " + (data.state.admin ? "права администратора" : "без прав администратора"));
   } catch (error) {

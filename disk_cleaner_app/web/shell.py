@@ -54,7 +54,9 @@ def create(debug: bool = False) -> tuple[webview.Window, Api]:
 
 
 def run(debug: bool = False) -> None:
-    create(debug)
+    # Окно могло быть создано раньше (тесты, встраивание): не открываем второе.
+    if not webview.windows:
+        create(debug)
     # private_mode=True: вёрстка грузится из локальных файлов, а кэш профиля
     # WebView2 переживает обновление приложения и показывает старый интерфейс.
     webview.start(debug=debug, private_mode=True)
