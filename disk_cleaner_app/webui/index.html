@@ -286,6 +286,51 @@
       </div>
     </section>
 
+    <!-- Дубликаты -->
+    <section class="view" id="viewDup" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <button class="btn secondary" id="dupPick">Папка…</button>
+          <span class="dup-root" id="dupRoot" title="">—</span>
+          <div class="sep"></div>
+          <div class="seg" id="dupMode">
+            <button class="seg-item on" data-mode="fast">Быстрый</button>
+            <button class="seg-item" data-mode="exact">Точный</button>
+          </div>
+          <button class="btn primary" id="dupScan">
+            <span class="ico">&#xE773;</span>Искать
+          </button>
+          <button class="btn secondary" id="dupStop" disabled>Стоп</button>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="dupChip">не искали</span>
+        </section>
+
+        <section class="card targets">
+          <div class="tables-head dup-head-row">
+            <span class="col-name">Группа</span>
+            <span class="col-size">Занято зря</span>
+          </div>
+          <div id="dupList"></div>
+          <div class="empty" id="dupEmpty">
+            <div class="empty-glyph">&#xE8B7;</div>
+            <div class="empty-title">Дубликатов не найдено</div>
+            <div class="empty-sub">Выберите папку и запустите поиск.</div>
+          </div>
+        </section>
+
+        <section class="card dup-actions">
+          <span class="ab-sum" id="dupSum">Ничего не отмечено</span>
+          <div class="fill"></div>
+          <label class="switch">
+            <input type="checkbox" id="dupRecycle" checked />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-text">В корзину</span>
+          </label>
+          <button class="btn primary" id="dupDelete" disabled>Удалить копии</button>
+        </section>
+      </div>
+    </section>
+
     <!-- Раздел ещё не перенесён -->
     <section class="view" id="viewSoon" hidden>
       <div class="page-body">

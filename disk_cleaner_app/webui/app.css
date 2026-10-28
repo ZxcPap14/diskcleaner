@@ -87,11 +87,14 @@ html, body {
   user-select: none;
 }
 
-.glyph {
+.glyph, .ico, .chev {
   font-family: var(--icon);
-  font-size: 16px;
-  line-height: 1;
+  font-style: normal;
   font-weight: 400;
+  line-height: 1;
+}
+.glyph {
+  font-size: 16px;
 }
 
 .muted { color: var(--text-3); }
@@ -1032,6 +1035,65 @@ body:not([data-view="deep"]):not([data-view="clean"]) #statusMeta { display: non
 }
 .start-src { font-size: 12px; color: var(--text-2); }
 .start-row.off .start-name b { color: var(--text-3); }
+
+/* ── Дубликаты ────────────────────────────────────── */
+
+.dup-root {
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.dup-head-row { display: flex; }
+.dup-head-row .col-size { margin-left: auto; }
+
+.dup-group { border-bottom: 1px solid var(--stroke-soft); }
+.dup-group:last-child { border-bottom: 0; }
+#dupList { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.dup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.dup-head:hover { background: var(--ctrl); }
+.dup-head .chev { color: var(--text-3); width: 14px; font-family: var(--icon); font-size: 12px; }
+.dup-head .ico { font-family: var(--icon); }
+.dup-group.collapsed .chev { transform: rotate(-90deg); }
+.dup-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dup-meta { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.dup-wasted { margin-left: auto; font-weight: 600; white-space: nowrap; }
+
+.dup-files { padding: 0 14px 6px 38px; }
+.dup-group.collapsed .dup-files { display: none; }
+
+.dup-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.dup-file input { accent-color: var(--accent); }
+.dup-file .dup-path { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dup-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.dup-actions { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
 .prog-row {
   padding: 7px 14px;
   border-bottom: 1px solid var(--stroke-soft);

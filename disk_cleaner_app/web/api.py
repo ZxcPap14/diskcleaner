@@ -10,8 +10,11 @@ import logging
 import threading
 from typing import Any
 
+import webview
+
 from disk_cleaner_app.web import win
 from disk_cleaner_app.web.dashboard import DashboardService
+from disk_cleaner_app.web.duplicates import DuplicatesService
 from disk_cleaner_app.web.history import HistoryService
 from disk_cleaner_app.web.programs import ProgramsService
 from disk_cleaner_app.web.service import DeepService
@@ -31,6 +34,7 @@ class Api:
         self._prog = ProgramsService()
         self._prog_busy = False
         self._startup = StartupService()
+        self._dup = DuplicatesService()
 
     # ── запуск ───────────────────────────────────────
 
@@ -73,6 +77,46 @@ class Api:
 
     def history_state(self) -> dict[str, Any]:
         return self._hist.state()
+
+    # ── дубликаты ────────────────────────────────────
+
+    def dup_state(self) -> dict[str, Any]:
+        return self._dup.state()
+
+    def dup_root(self, path: str) -> dict[str, Any]:
+        return self._dup.set_root(path)
+
+    def dup_pick(self) -> dict[str, Any]:
+        """Системный выбор папки; на отмену возвращаем текущее состояние."""
+        try:
+            picked = self._window.create_file_dialog(webview.FileDialog.FOLDER)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            log.warning("Диалог выбора папки недоступен", exc_info=True)
+            return self._dup.state()
+        if picked:
+            return self._dup.set_root(picked[0])
+        return self._dup.state()
+
+    def dup_scan(self, mode: str) -> str:
+        def progress(scanned: int, text: str) -> None:
+            self._call(f"dc.dupProgress({scanned}, {json.dumps(text)})")
+
+        def done(state: dict[str, Any]) -> None:
+            self._call("dc.dupDone(" + json.dumps(state) + ")")
+
+        self._dup.scan(mode, progress, done)
+        return "started"
+
+    def dup_stop(self) -> dict[str, Any]:
+        return self._dup.stop()
+
+    def dup_delete(self, paths: list[str], to_recycle: bool = True) -> str:
+        def worker() -> None:
+            result = self._dup.delete(list(paths), to_recycle)
+            self._call("dc.dupDeleted(" + json.dumps(result) + ")")
+
+        threading.Thread(target=worker, name="dup-delete", daemon=True).start()
+        return "started"
 
     # ── программы ────────────────────────────────────
 

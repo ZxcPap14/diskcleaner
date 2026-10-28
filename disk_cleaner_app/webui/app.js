@@ -10,10 +10,10 @@ const NAV = [
   ["deep", "E90F", "Глубокая очистка"],
   ["analyzer", "E721", "Анализ"],
   ["disks", "EDA2", "Диски"],
-  ["duplicates", "E8B7", "Дубликаты"],
+  ["dup", "E8B7", "Дубликаты"],
   ["history", "E81C", "История"],
   ["startup", "E945", "Автозагрузка"],
-  ["uninstaller", "E71D", "Программы"],
+  ["programs", "E71D", "Программы"],
 ];
 
 const LAYER_COLOR = {
@@ -51,6 +51,11 @@ const VIEWS = {
     title: "Автозагрузка",
     sub: "Что запускается вместе с Windows",
   },
+  dup: {
+    el: "viewDup",
+    title: "Дубликаты",
+    sub: "Одинаковые файлы: покажем и удалим лишние копии",
+  },
 };
 
 let current = "home";
@@ -59,6 +64,9 @@ let hist = null;
 let programs = null;
 let startup = null;
 let startupSearch = "";
+let dup = null;
+const dupChecked = new Set();
+const dupCollapsed = new Set();
 
 const state = {
   targets: [],
@@ -129,6 +137,7 @@ function showView(id) {
   if (id === "history") loadHistory();
   if (id === "programs") loadPrograms();
   if (id === "startup") loadStartup();
+  if (id === "dup") loadDup();
 }
 
 /* ── главная ──────────────────────────────────────── */
@@ -366,6 +375,102 @@ async function toggleStartup(id, enabled) {
   startup = await api().startup_toggle(id, enabled);
   renderStartup();
   status(enabled ? "Запись включена" : "Запись отключена", "");
+}
+
+/* ── дубликаты ────────────────────────────────────── */
+
+async function loadDup() {
+  dup = await api().dup_state();
+  dupChecked.clear();
+  renderDup();
+}
+
+function renderDup() {
+  if (!dup) return;
+  const root = $("#dupRoot");
+  root.textContent = dup.root;
+  root.title = dup.root;
+
+  let marked = 0;
+  let wasted = 0;
+  for (const group of dup.groups) {
+    for (const file of group.files) {
+      if (file.original || !dupChecked.has(file.path)) continue;
+      marked += 1;
+      wasted += group.size;
+    }
+  }
+
+  $("#dupSum").textContent = marked
+    ? `Отмечено ${marked} файлов · ${bytes(wasted)}`
+    : "Ничего не отмечено";
+  $("#dupDelete").disabled = !marked || !!dup.busy;
+  $("#dupStop").disabled = !dup.busy;
+  $("#dupScan").disabled = !!dup.busy;
+  $("#dupChip").textContent = dup.busy
+    ? "идёт поиск…"
+    : (dup.count ? `${dup.count} групп · ${dup.wasted_text}` : "ничего не найдено");
+  $("#dupEmpty").hidden = dup.count > 0 || dup.busy;
+
+  $("#dupList").innerHTML = dup.groups.map((group) => {
+    const collapsed = dupCollapsed.has(group.id);
+    const files = group.files.map((file) => {
+      const checked = file.original || dupChecked.has(file.path);
+      return `
+        <label class="dup-file">
+          <input type="checkbox" data-dup-file="${esc(file.path)}"${checked ? " checked" : ""}${file.original ? " disabled" : ""} />
+          <span class="dup-name">${esc(file.name)}</span>
+          <span class="dup-path">${esc(file.dir)}</span>
+          ${file.original ? `<span class="dup-tag">оригинал</span>` : ""}
+        </label>`;
+    }).join("");
+    return `
+      <div class="dup-group${collapsed ? " collapsed" : ""}">
+        <div class="dup-head" data-dup-group="${group.id}">
+          ${glyph("E70D", "chev")}
+          <span class="dup-name">${esc(group.name)}</span>
+          <span class="dup-meta">${group.count} файлов · ${group.size_text}</span>
+          <span class="dup-wasted">${group.wasted_text}</span>
+        </div>
+        <div class="dup-files">${files}</div>
+      </div>`;
+  }).join("");
+}
+
+async function dupPick() {
+  dup = await api().dup_pick();
+  dupChecked.clear();
+  renderDup();
+}
+
+async function dupScan() {
+  if (!dup) return;
+  const mode = $("#dupMode .seg-item.on");
+  dup.busy = true;
+  renderDup();
+  status("Ищем дубликаты…", "busy");
+  await api().dup_scan(mode ? mode.dataset.mode : "fast");
+}
+
+function confirmDupDelete() {
+  const paths = [...dupChecked];
+  if (!paths.length) return;
+  openModal({
+    title: "Удалить копии?",
+    body: `<div class="note">Будет удалено файлов: <b>${paths.length}</b>. Оригинал в каждой группе остаётся на месте.</div>`,
+    buttons: [
+      { label: "Отмена", style: "secondary", action: closeModal },
+      {
+        label: "Удалить",
+        style: "danger",
+        action: async () => {
+          closeModal();
+          status("Удаляем копии…", "busy");
+          await api().dup_delete(paths, $("#dupRecycle").checked);
+        },
+      },
+    ],
+  });
 }
 
 function confirmUninstall(id) {
@@ -832,6 +937,38 @@ window.dc = {
     if (current === "programs") renderPrograms();
     status("Размеры посчитаны", "");
   },
+  dupProgress(scanned, text) {
+    if (dup) dup.busy = true;
+    $("#dupChip").textContent = `проверено ${scanned}`;
+    status(text || "Ищем дубликаты…", "busy");
+  },
+  dupDone(state) {
+    dup = state;
+    dupChecked.clear();
+    renderDup();
+    status(
+      state.count
+        ? `Найдено групп: ${state.count} · зря занято ${state.wasted_text}`
+        : "Дубликатов не найдено",
+      "",
+    );
+  },
+  dupDeleted(result) {
+    if (result.state) {
+      dup = result.state;
+      dupChecked.clear();
+      renderDup();
+    }
+    status(`Удалено файлов: ${result.deleted} · освобождено ${result.freed_text}`, "");
+    const errors = (result.errors || []).map((line) => `<li>${esc(line)}</li>`).join("");
+    openModal({
+      title: result.failed ? "Удалено с ошибками" : "Копии удалены",
+      body: `<div class="note">Удалено: <b>${result.deleted}</b> · освобождено <b>${result.freed_text}</b>${
+        result.failed ? ` · не удалось: <b>${result.failed}</b>` : ""
+      }</div>${errors ? `<div class="note"><ul>${errors}</ul></div>` : ""}`,
+      buttons: [{ label: "Готово", style: "primary", action: closeModal }],
+    });
+  },
   async programsUninstalled(payload) {
     const logs = (payload.logs || []).join("\n");
     if (payload.state) {
@@ -973,6 +1110,41 @@ function bind() {
   $("#startList").addEventListener("change", (event) => {
     const box = event.target.closest("[data-start-toggle]");
     if (box) toggleStartup(box.dataset.startToggle, box.checked);
+  });
+
+  $("#dupPick").addEventListener("click", dupPick);
+  $("#dupScan").addEventListener("click", dupScan);
+  $("#dupStop").addEventListener("click", async () => {
+    await api().dup_stop();
+    status("Поиск остановлен", "");
+  });
+  $("#dupDelete").addEventListener("click", confirmDupDelete);
+  $("#dupMode").addEventListener("click", (event) => {
+    const item = event.target.closest("[data-mode]");
+    if (!item) return;
+    for (const other of document.querySelectorAll("#dupMode .seg-item")) {
+      other.classList.toggle("on", other === item);
+    }
+  });
+  $("#dupList").addEventListener("change", (event) => {
+    const box = event.target.closest("[data-dup-file]");
+    if (!box) return;
+    const path = box.dataset.dupFile;
+    if (box.checked) dupChecked.add(path);
+    else dupChecked.delete(path);
+    const top = $("#dupList").scrollTop;
+    renderDup();
+    $("#dupList").scrollTop = top;
+  });
+  $("#dupList").addEventListener("click", (event) => {
+    const head = event.target.closest("[data-dup-group]");
+    if (!head) return;
+    const id = head.dataset.dupGroup;
+    if (dupCollapsed.has(id)) dupCollapsed.delete(id);
+    else dupCollapsed.add(id);
+    const top = $("#dupList").scrollTop;
+    renderDup();
+    $("#dupList").scrollTop = top;
   });
 
   $("#btnScan").addEventListener("click", startScan);
