@@ -41,11 +41,17 @@ const VIEWS = {
     title: "История",
     sub: "Что и когда удалялось",
   },
+  programs: {
+    el: "viewPrograms",
+    title: "Программы",
+    sub: "Установленные приложения, их размер и удаление",
+  },
 };
 
 let current = "home";
 let home = null;
 let hist = null;
+let programs = null;
 
 const state = {
   targets: [],
@@ -114,6 +120,7 @@ function showView(id) {
   document.body.dataset.view = id;
   if (id === "home") loadHome();
   if (id === "history") loadHistory();
+  if (id === "programs") loadPrograms();
 }
 
 /* ── главная ──────────────────────────────────────── */
@@ -253,6 +260,80 @@ async function loadHistory() {
   } catch (error) {
     status("Не удалось прочитать историю: " + error, "err");
   }
+}
+
+/* ── программы ────────────────────────────────────── */
+
+function progMatches(app) {
+  const drive = $("#progDrive").value;
+  if (drive && app.drive !== drive) return false;
+  const needle = ($("#progSearch").value || "").trim().toLowerCase();
+  if (!needle) return true;
+  return (app.name + " " + (app.publisher || "")).toLowerCase().includes(needle);
+}
+
+function renderPrograms() {
+  if (!programs) return;
+  const apps = programs.apps.filter(progMatches);
+  $("#progCount").textContent = apps.length;
+  $("#progChip").textContent = programs.measuring ? "размеры считаются…" : "готово";
+  $("#progChip").classList.toggle("muted-chip", !programs.measuring);
+  $("#progEmpty").hidden = apps.length > 0;
+  $("#progList").innerHTML = apps.map((app) => `
+    <div class="prog-row">
+      <div class="prog-name">
+        <b title="${esc(app.name)}">${esc(app.name)}</b>
+        <span>${esc([app.publisher, app.drive].filter(Boolean).join(" · "))}</span>
+      </div>
+      <span class="prog-cell">${esc(app.version || "—")}</span>
+      <span class="prog-cell">${esc(app.date || "—")}</span>
+      <span class="prog-size${app.size_text ? "" : " pending"}">${esc(app.size_text || "—")}</span>
+      <span class="prog-act">
+        <button class="btn icon" title="Удалить программу" data-uninstall="${esc(app.id)}">
+          <span class="glyph">&#xE74D;</span>
+        </button>
+      </span>
+    </div>`).join("");
+}
+
+async function loadPrograms() {
+  try {
+    programs = await api().programs_state();
+    const select = $("#progDrive");
+    select.innerHTML = [`<option value="">Все диски</option>`]
+      .concat(programs.drives.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`))
+      .join("");
+    programs.measuring = true;
+    renderPrograms();
+    status("Читаю установленные программы…", "busy");
+    await api().programs_measure();
+    status(`Программ: ${programs.count}`, "");
+  } catch (error) {
+    status("Не удалось прочитать список программ: " + error, "err");
+  }
+}
+
+function confirmUninstall(id) {
+  const app = programs && programs.apps.find((item) => item.id === id);
+  if (!app) return;
+  openModal({
+    title: "Удалить программу?",
+    body: `<div class="note"><b>${esc(app.name)}</b>${app.version ? ` ${esc(app.version)}` : ""}</div>
+      <div class="note">Запустится штатный деинсталлятор Windows — возможно, с вопросом на экране.
+      Остатки и папки настроек он не трогает.</div>`,
+    buttons: [
+      { label: "Отмена", style: "secondary", action: closeModal },
+      {
+        label: "Удалить",
+        style: "primary",
+        action: async () => {
+          closeModal();
+          status(`Удаление: ${app.name}…`, "busy");
+          await api().programs_uninstall(id);
+        },
+      },
+    ],
+  });
 }
 
 /* ── слои ─────────────────────────────────────────── */
@@ -519,7 +600,7 @@ async function showPreview() {
     openModal({
       title: "Предпросмотр",
       body: `<div class="note">Отметьте цель с предпросмотром — покажем первые файлы внутри.</div>`,
-      buttons: [{ label: "Закрыть", kind: "secondary", action: closeModal }],
+      buttons: [{ label: "Закрыть", style: "secondary", action: closeModal }],
     });
     return;
   }
@@ -535,7 +616,7 @@ async function showPreview() {
     wide: true,
     body: `<div class="note"><b>${esc(data.path)}</b><ul>${rows}</ul></div>${
       foot ? `<div class="note">${foot}</div>` : ""}`,
-    buttons: [{ label: "Закрыть", kind: "secondary", action: closeModal }],
+    buttons: [{ label: "Закрыть", style: "secondary", action: closeModal }],
   });
 }
 
@@ -682,6 +763,34 @@ window.dc = {
       buttons: [{ label: "Готово", style: "primary", action: closeModal }],
     });
   },
+  programsSizes(batch) {
+    if (!programs) return;
+    for (const item of batch) {
+      const app = programs.apps.find((entry) => entry.id === item.id);
+      if (app) app.size_text = item.size_text;
+    }
+    if (current === "programs") renderPrograms();
+  },
+  programsMeasured() {
+    if (!programs) return;
+    programs.measuring = false;
+    if (current === "programs") renderPrograms();
+    status("Размеры посчитаны", "");
+  },
+  async programsUninstalled(payload) {
+    const logs = (payload.logs || []).join("\n");
+    if (payload.state) {
+      programs = payload.state;
+      renderPrograms();
+    }
+    status(payload.ok ? "Деинсталлятор запущен" : "Не удалось запустить удаление", "");
+    openModal({
+      title: payload.ok ? "Удаление запущено" : "Удаление невозможно",
+      body: `<div class="note" style="white-space:pre-wrap">${esc(logs)}</div>`,
+      wide: true,
+      buttons: [{ label: "Готово", style: "primary", action: closeModal }],
+    });
+  },
 };
 
 /* ── форматирование ───────────────────────────────── */
@@ -708,6 +817,12 @@ function bind() {
       const id = check.dataset.toggleRow;
       const target = state.targets.find((t) => t.id === id);
       if (target) toggleTarget(id, !target.selected);
+      return;
+    }
+
+    const uninstall = event.target.closest("[data-uninstall]");
+    if (uninstall) {
+      confirmUninstall(uninstall.dataset.uninstall);
       return;
     }
 
@@ -793,6 +908,8 @@ function bind() {
   $("#homeDrive").addEventListener("change", (event) => pickDrive(event.target.value));
   $("#homeBannerBtn").addEventListener("click", () => showView("deep"));
   $("#histType").addEventListener("change", renderHistory);
+  $("#progSearch").addEventListener("input", renderPrograms);
+  $("#progDrive").addEventListener("change", renderPrograms);
 
   $("#btnScan").addEventListener("click", startScan);
   $("#btnStop").addEventListener("click", stopScan);

@@ -997,6 +997,48 @@ body:not([data-view="deep"]):not([data-view="clean"]) #statusMeta { display: non
 .hist-items { font-size: 12px; color: var(--text-3); }
 .hist-size { margin-left: auto; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/* ── Программы ───────────────────────────────────── */
+
+.prog-head, .prog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 120px 110px 40px;
+  align-items: center;
+  gap: 12px;
+}
+.prog-row {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--stroke-soft);
+  font-size: 12.5px;
+}
+.prog-row:last-child { border-bottom: 0; }
+.prog-row:hover { background: var(--ctrl); }
+.prog-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.prog-name b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prog-name span {
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prog-cell { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.prog-size { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.prog-size.pending { color: var(--text-3); font-weight: 400; }
+.prog-act { display: flex; justify-content: flex-end; }
+.field {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--stroke);
+  background: var(--ctrl);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.field::placeholder { color: var(--text-3); }
+.field:focus { border-color: var(--accent); background: var(--card); }
+
 .trend {
   display: flex;
   flex-direction: column;

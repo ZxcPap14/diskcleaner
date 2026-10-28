@@ -226,6 +226,38 @@
       </div>
     </section>
 
+    <!-- Программы -->
+    <section class="view" id="viewPrograms" hidden>
+      <div class="page-body">
+        <section class="card toolbar">
+          <input class="field" id="progSearch" type="search" placeholder="Найти программу" />
+          <select class="select" id="progDrive">
+            <option value="">Все диски</option>
+          </select>
+          <div class="sep"></div>
+          <span class="stat-inline"><b id="progCount">0</b> программ</span>
+          <div class="fill"></div>
+          <span class="chip muted-chip" id="progChip">размеры считаются…</span>
+        </section>
+
+        <section class="card targets">
+          <div class="tables-head prog-head">
+            <span class="col-name">Программа</span>
+            <span class="col-ver">Версия</span>
+            <span class="col-date">Установлена</span>
+            <span class="col-size">Размер</span>
+            <span class="col-act"></span>
+          </div>
+          <div id="progList"></div>
+          <div class="empty" id="progEmpty" hidden>
+            <div class="empty-glyph">&#xE71D;</div>
+            <div class="empty-title">Ничего не найдено</div>
+            <div class="empty-sub">Измените запрос или выберите другой диск.</div>
+          </div>
+        </section>
+      </div>
+    </section>
+
     <!-- Раздел ещё не перенесён -->
     <section class="view" id="viewSoon" hidden>
       <div class="page-body">

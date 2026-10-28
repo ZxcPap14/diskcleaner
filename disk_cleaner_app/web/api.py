@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any
 
 from disk_cleaner_app.web import win
 from disk_cleaner_app.web.dashboard import DashboardService
 from disk_cleaner_app.web.history import HistoryService
+from disk_cleaner_app.web.programs import ProgramsService
 from disk_cleaner_app.web.service import DeepService
 
 log = logging.getLogger(__name__)
@@ -25,6 +27,8 @@ class Api:
         self._deep = DeepService()
         self._home = DashboardService(self._deep)
         self._hist = HistoryService(self._deep.history)
+        self._prog = ProgramsService()
+        self._prog_busy = False
 
     # ── запуск ───────────────────────────────────────
 
@@ -67,6 +71,37 @@ class Api:
 
     def history_state(self) -> dict[str, Any]:
         return self._hist.state()
+
+    # ── программы ────────────────────────────────────
+
+    def programs_state(self) -> dict[str, Any]:
+        return self._prog.load()
+
+    def programs_measure(self) -> str:
+        if self._prog_busy:
+            return "busy"
+
+        def notify(batch: list[dict[str, Any]]) -> None:
+            self._call("dc.programsSizes(" + json.dumps(batch) + ")")
+
+        def worker() -> None:
+            try:
+                self._prog.measure(notify)
+            finally:
+                self._prog_busy = False
+                self._call("dc.programsMeasured()")
+
+        self._prog_busy = True
+        threading.Thread(target=worker, daemon=True).start()
+        return "ok"
+
+    def programs_uninstall(self, app_id: str) -> str:
+        def worker() -> None:
+            payload = self._prog.uninstall(app_id)
+            self._call("dc.programsUninstalled(" + json.dumps(payload) + ")")
+
+        threading.Thread(target=worker, daemon=True).start()
+        return "ok"
 
     # ── анализ ───────────────────────────────────────
 
