@@ -26,6 +26,10 @@ dependencies = [
     "squarify>=0.4.4,<1",
     "pystray>=0.19,<1",
     "pillow>=10,<13",
+    # Новый интерфейс рисуется в WebView2 (Edge Chromium): сам рантайм
+    # системный, пакет нужен только как мост Python ↔ JS.
+    "pywebview>=6.2,<7",
+    "pythonnet>=3.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -38,9 +42,14 @@ dev = [
 
 [project.gui-scripts]
 disk-cleaner = "disk_cleaner_app.ui.app:main"
+disk-cleaner-web = "disk_cleaner_app.web.shell:main"
 
 [tool.setuptools.packages.find]
 include = ["disk_cleaner_app*"]
+
+[tool.setuptools.package-data]
+# Разметка нового интерфейса — не Python-модули, но нужна в колесе и в exe.
+"disk_cleaner_app" = ["webui/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

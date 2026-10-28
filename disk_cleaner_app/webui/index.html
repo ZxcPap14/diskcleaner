@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DiskCleaner Pro</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ── Заголовок окна ─────────────────────────────── -->
+<header class="titlebar" id="titlebar">
+  <div class="tb-brand">
+    <div class="tb-logo">&#xE74D;</div>
+    <div class="tb-name">DiskCleaner<span>Pro</span></div>
+  </div>
+  <div class="tb-fill" data-drag></div>
+  <div class="tb-badges">
+    <span class="pill" id="pillAdmin" hidden>&#xE72E; без прав администратора</span>
+  </div>
+  <div class="tb-caption">
+    <button class="cap" data-cap="min" title="Свернуть">&#xE921;</button>
+    <button class="cap" data-cap="max" title="Развернуть">&#xE922;</button>
+    <button class="cap close" data-cap="close" title="Закрыть">&#xE8BB;</button>
+  </div>
+</header>
+
+<div class="shell">
+  <!-- ── Навигация ────────────────────────────────── -->
+  <nav class="rail">
+    <div class="rail-search">
+      <span class="glyph">&#xE721;</span>
+      <input id="search" type="text" placeholder="Поиск целей" spellcheck="false">
+    </div>
+    <div class="rail-list" id="railList"></div>
+    <div class="rail-foot">
+      <div class="rail-item" data-view="settings">
+        <span class="glyph">&#xE713;</span><span class="rail-label">Настройки</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Страница ─────────────────────────────────── -->
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <h1 id="pageTitle">Глубокая очистка</h1>
+        <p id="pageSub">Каждый слой — отдельный уровень риска. Сначала анализ, потом очистка.</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn subtle icon" id="btnStop" title="Остановить" hidden>
+          <span class="glyph">&#xE71A;</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="page-body" id="pageBody">
+
+      <!-- Панель действий -->
+      <section class="card toolbar">
+        <button class="btn primary" id="btnScan">
+          <span class="glyph">&#xE773;</span><span>Анализировать</span>
+        </button>
+        <div class="sep"></div>
+        <button class="btn secondary" id="btnSafe">Безопасный набор</button>
+        <button class="btn subtle" id="btnNone">Снять выбор</button>
+        <div class="fill"></div>
+        <span class="chip" id="chipFound">не проанализировано</span>
+      </section>
+
+      <!-- Слои -->
+      <section class="layers" id="layers"></section>
+      <section class="card mixbar" id="mixbar" hidden>
+        <div class="mixbar-head">
+          <span class="label">Распределение по слоям</span>
+          <span class="muted" id="mixTotal"></span>
+        </div>
+        <div class="mixbar-track" id="mixTrack"></div>
+        <div class="mixbar-legend" id="mixLegend"></div>
+      </section>
+
+      <!-- Цели -->
+      <section class="card targets" id="targets">
+        <div class="tables-head">
+          <span class="col-name">Цель</span>
+          <span class="col-size">Размер</span>
+        </div>
+        <div id="groups"></div>
+        <div class="empty" id="empty" hidden>
+          <div class="empty-glyph">&#xE9D9;</div>
+          <div class="empty-title">Пока ничего не найдено</div>
+          <div class="empty-sub">Нажмите «Анализировать» — приложение посчитает, сколько можно освободить.</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Нижняя панель действий -->
+    <div class="actionbar">
+      <div class="ab-left">
+        <div class="ab-sum" id="abSum">Ничего не выбрано</div>
+        <div class="ab-hint" id="abHint">Отметьте цели или возьмите безопасный набор</div>
+      </div>
+      <div class="ab-right">
+        <label class="switch" title="Удалённое сначала попадает в корзину">
+          <input type="checkbox" id="optRecycle">
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-text">В корзину</span>
+        </label>
+        <button class="btn secondary" id="btnPlan" disabled>Показать план</button>
+        <button class="btn primary" id="btnClean" disabled>
+          <span class="glyph">&#xE74D;</span><span>Очистить</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Прогресс -->
+    <div class="progress-line" id="progressLine" hidden><div class="bar" id="progressBar"></div></div>
+  </main>
+</div>
+
+<footer class="statusbar">
+  <span class="dot" id="statusDot"></span>
+  <span id="statusText">Готов к работе</span>
+  <span class="fill"></span>
+  <span class="muted" id="statusMeta"></span>
+</footer>
+
+<!-- Ручки ресайза (окно без системной рамки) -->
+<div class="grip n" data-edge="top"></div>
+<div class="grip s" data-edge="bottom"></div>
+<div class="grip w" data-edge="left"></div>
+<div class="grip e" data-edge="right"></div>
+<div class="grip nw" data-edge="topleft"></div>
+<div class="grip ne" data-edge="topright"></div>
+<div class="grip sw" data-edge="bottomleft"></div>
+<div class="grip se" data-edge="bottomright"></div>
+
+<div class="modal-root" id="modalRoot"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

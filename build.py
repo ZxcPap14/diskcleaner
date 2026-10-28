@@ -110,6 +110,7 @@ def write_version_file(version: str) -> str:
 def build_command(
     uac_admin: bool = False,
     version_file: str | None = None,
+    web: bool = False,
 ) -> list[str]:
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -117,7 +118,7 @@ def build_command(
         "--noconsole",
         "--clean",
         "--noconfirm",
-        "--name", APP_NAME,
+        "--name", "DiskCleanerWeb" if web else APP_NAME,
         "--distpath", DIST_DIR,
         "--workpath", BUILD_DIR,
         "--specpath", BUILD_DIR,
@@ -129,6 +130,15 @@ def build_command(
         "--hidden-import", "pystray",
         "--hidden-import", "pystray._win32",
     ]
+    if web:
+        # pywebview грузит WinForms-бэкенд и WebView2-лоадер по имени
+        # (pythonnet/clr), поэтому их нужно тянуть целиком, а не по импортам.
+        cmd += [
+            "--collect-all", "webview",
+            "--hidden-import", "webview.platforms.winforms",
+            "--hidden-import", "clr",
+            "--hidden-import", "pythonnet",
+        ]
     if os.path.exists(ICON_PATH):
         cmd += ["--icon", os.path.abspath(ICON_PATH)]
     assets_dir = os.path.abspath("assets")
@@ -140,9 +150,14 @@ def build_command(
     if uac_admin:
         # Манифест requireAdministrator: UAC при каждом запуске.
         cmd.append("--uac-admin")
+    if web:
+        webui_dir = os.path.abspath(os.path.join("disk_cleaner_app", "webui"))
+        cmd += ["--add-data", f"{webui_dir}{os.pathsep}disk_cleaner_app/webui"]
     for module in EXCLUDES:
         cmd += ["--exclude-module", module]
-    cmd.append(MAIN_SCRIPT)
+    cmd.append(
+        os.path.join("disk_cleaner_app", "web", "shell.py") if web else MAIN_SCRIPT
+    )
     return cmd
 
 
@@ -153,12 +168,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="встроить манифест requireAdministrator (UAC при запуске)",
     )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="собрать новый интерфейс на WebView2 (DiskCleanerWeb.exe)",
+    )
     args = parser.parse_args(argv)
 
     clean_old_builds()
     version = project_version()
     version_file = write_version_file(version)
-    cmd = build_command(uac_admin=args.uac_admin, version_file=version_file)
+    cmd = build_command(
+        uac_admin=args.uac_admin, version_file=version_file, web=args.web
+    )
 
     print("🛠️  Building", APP_NAME, f"v{version}", "...")
     if os.path.exists(ICON_PATH):
@@ -172,7 +194,9 @@ def main(argv: list[str] | None = None) -> int:
         print("❌ Build failed.")
         return result.returncode
 
-    exe_path = os.path.join(DIST_DIR, f"{APP_NAME}.exe")
+    exe_path = os.path.join(
+        DIST_DIR, "DiskCleanerWeb.exe" if args.web else f"{APP_NAME}.exe"
+    )
     if not os.path.exists(exe_path):
         print("❌ Build finished, but exe not found:", exe_path)
         return 1
