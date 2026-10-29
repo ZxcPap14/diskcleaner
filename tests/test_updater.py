@@ -55,6 +55,13 @@ def test_is_newer_compares_numerically() -> None:
     assert updater.is_newer("4.19.0", "4.19.0") is False
 
 
+def test_is_newer_sees_new_1x_line_after_4x() -> None:
+    assert updater.is_newer("1.1.0", "4.25.0")
+    assert updater.is_newer("v1.1.0", "4.24.0")
+    # Внутри новой линии сравнение обычное.
+    assert updater.is_newer("1.0.0", "1.1.0") is False
+
+
 # ── выключенная и ошибочная проверка ─────────────────────
 
 

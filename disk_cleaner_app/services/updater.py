@@ -61,7 +61,13 @@ def parse_version(text: object) -> tuple[int, ...]:
 
 
 def is_newer(latest: str, current: str) -> bool:
-    return parse_version(latest) > parse_version(current)
+    latest_parts = parse_version(latest)
+    current_parts = parse_version(current)
+    # Новая нумерация 1.x пошла после 4.x (сменился движок интерфейса),
+    # поэтому старые 4.x обязаны видеть 1.x как обновление.
+    if current_parts and latest_parts and current_parts[0] >= 4 and latest_parts[0] == 1:
+        return True
+    return latest_parts > current_parts
 
 
 def _result(status: str, message: str, latest: str | None = None,

@@ -99,7 +99,7 @@ def _on_ui(window, fn) -> None:
     """
     form = window.native
     try:
-        from System import Action
+        from System import Action  # type: ignore[import-not-found]
 
         form.BeginInvoke(Action(fn))
     except Exception:
