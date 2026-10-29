@@ -3,11 +3,18 @@
 #
 #   pwsh -File scripts\verify_installer.ps1 -Setup dist\DiskCleaner-Setup-4.10.3.exe
 #   powershell -File scripts\verify_installer.ps1 -Setup ... -KeepInstall
+#   pwsh -File scripts\verify_installer.ps1 -Setup dist\DiskCleanerWeb-Setup-1.1.0.exe `
+#       -Exe DiskCleanerWeb.exe -SkipSelfTest
 param(
     [Parameter(Mandatory = $true)]
     [string]$Setup,
 
     [string]$InstallDir = (Join-Path $env:TEMP "DiskCleanerVerify"),
+
+    [string]$Exe = "DiskCleaner.exe",
+
+    # Веб-сборка не умеет --self-test: проверяем только установку и удаление.
+    [switch]$SkipSelfTest,
 
     [switch]$KeepInstall
 )
@@ -36,34 +43,38 @@ if ($install.ExitCode -ne 0) {
     throw "Установщик вернул код $($install.ExitCode)"
 }
 
-$exe = Join-Path $InstallDir "DiskCleaner.exe"
+$exe = Join-Path $InstallDir $Exe
 if (-not (Test-Path -LiteralPath $exe)) {
     throw "После установки нет $exe"
 }
 
-Write-Host "2/4 Самопроверка: $exe --self-test"
-$report = Join-Path $env:TEMP "DiskCleaner-selftest.json"
-Remove-Item -LiteralPath $report -ErrorAction SilentlyContinue
-$test = Start-Process -FilePath $exe -ArgumentList "--self-test" -PassThru
-Wait-ProcessOrFail -Process $test -Seconds 120 -What "Самопроверка"
-if ($test.ExitCode -ne 0) {
-    throw "Самопроверка вернула код $($test.ExitCode); отчёт: $report"
-}
-if (-not (Test-Path -LiteralPath $report)) {
-    throw "Самопроверка не создала отчёт $report"
-}
+if ($SkipSelfTest) {
+    Write-Host "2/4 Самопроверка пропущена (-SkipSelfTest)"
+} else {
+    Write-Host "2/4 Самопроверка: $exe --self-test"
+    $report = Join-Path $env:TEMP "DiskCleaner-selftest.json"
+    Remove-Item -LiteralPath $report -ErrorAction SilentlyContinue
+    $test = Start-Process -FilePath $exe -ArgumentList "--self-test" -PassThru
+    Wait-ProcessOrFail -Process $test -Seconds 120 -What "Самопроверка"
+    if ($test.ExitCode -ne 0) {
+        throw "Самопроверка вернула код $($test.ExitCode); отчёт: $report"
+    }
+    if (-not (Test-Path -LiteralPath $report)) {
+        throw "Самопроверка не создала отчёт $report"
+    }
 
-$payload = [IO.File]::ReadAllText($report, [Text.Encoding]::UTF8) | ConvertFrom-Json
-if (-not $payload.ok) {
-    $failed = $payload.checks.PSObject.Properties |
-        Where-Object { $_.Value.critical -and -not $_.Value.ok } |
-        ForEach-Object { "$($_.Name): $($_.Value.detail)" }
-    throw "Самопроверка не прошла: $($failed -join '; ')"
+    $payload = [IO.File]::ReadAllText($report, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    if (-not $payload.ok) {
+        $failed = $payload.checks.PSObject.Properties |
+            Where-Object { $_.Value.critical -and -not $_.Value.ok } |
+            ForEach-Object { "$($_.Name): $($_.Value.detail)" }
+        throw "Самопроверка не прошла: $($failed -join '; ')"
+    }
+    if (-not $payload.frozen) {
+        throw "Запущен не exe-сборка: $($payload.executable)"
+    }
+    Write-Host "   версия $($payload.version), Python $($payload.python), Tk OK"
 }
-if (-not $payload.frozen) {
-    throw "Запущен не exe-сборка: $($payload.executable)"
-}
-Write-Host "   версия $($payload.version), Python $($payload.python), Tk OK"
 
 if (-not $KeepInstall) {
     Write-Host "3/4 Удаление"

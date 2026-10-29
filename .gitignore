@@ -14,6 +14,9 @@ venv/
 # PyInstaller
 *.spec.bak
 
+# Ключи подписи (создаёт scripts/make_cert.ps1)
+certs/
+
 # IDE / OS
 .idea/
 .vscode/

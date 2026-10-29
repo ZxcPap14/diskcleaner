@@ -29,7 +29,11 @@ RequestExecutionLevel user
 !endif
 
 !define APP_NAME "DiskCleaner Pro"
-!define APP_EXE "DiskCleaner.exe"
+; build_installer.py передаёт имя exe: onefile — DiskCleaner.exe,
+; веб-сборка onedir — DiskCleanerWeb.exe рядом с папкой _internal.
+!ifndef APP_EXE
+  !define APP_EXE "DiskCleaner.exe"
+!endif
 !define APP_PUBLISHER "ZCode"
 !define APP_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\DiskCleanerPro"
 
@@ -89,6 +93,12 @@ Section "${APP_NAME}" SEC_MAIN
 
   SetOutPath "$INSTDIR"
   File /oname=${APP_EXE} "${SOURCE_DIR}\${APP_EXE}"
+  !ifdef WEB_BUILD
+    ; PyInstaller onedir: exe без папки _internal не запустится.
+    SetOutPath "$INSTDIR\_internal"
+    File /r "${SOURCE_DIR}\_internal\*.*"
+    SetOutPath "$INSTDIR"
+  !endif
   File /oname=README.md "${PROJECT_DIR}\README.md"
   File /oname=LICENSE "${PROJECT_DIR}\LICENSE"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -108,7 +118,11 @@ Section "${APP_NAME}" SEC_MAIN
   WriteRegStr HKCU "${APP_REG_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${APP_REG_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${APP_REG_KEY}" "NoRepair" 1
-  WriteRegDWORD HKCU "${APP_REG_KEY}" "EstimatedSize" 32000
+  !ifdef WEB_BUILD
+    WriteRegDWORD HKCU "${APP_REG_KEY}" "EstimatedSize" 36000
+  !else
+    WriteRegDWORD HKCU "${APP_REG_KEY}" "EstimatedSize" 32000
+  !endif
 
   DetailPrint "Установлено в $INSTDIR"
 SectionEnd
@@ -175,6 +189,9 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\${APP_NAME}"
 
   Delete "$INSTDIR\${APP_EXE}"
+  !ifdef WEB_BUILD
+    RMDir /r "$INSTDIR\_internal"
+  !endif
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\Uninstall.exe"
