@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from disk_cleaner_app.cleaners.base import get_dir_size, scan_cancelled
+from disk_cleaner_app.services import mft
 
 # Каталоги, которые не дают полезной картины «что занимает место»:
 # корзина и системные служебные области.
@@ -49,7 +50,19 @@ def scan_top_folders(
     limit: int = 50,
     cancel: threading.Event | None = None,
 ) -> list[dict]:
-    """Вернуть top-limit папок в root по размеру."""
+    """Вернуть top-limit папок в root по размеру.
+
+    На NTFS с правами администратора размеры берутся из $MFT: один проход
+    вместо обхода каждой папки.
+    """
+    fast = mft.scan_volume(root, cancel=cancel)
+    if fast is not None:
+        return [
+            {"name": name, "path": os.path.join(root, name), "size": size}
+            for name, size in fast.folders[:limit]
+            if size > 0
+        ][:limit]
+
     folders: list[dict] = []
     try:
         with os.scandir(root) as it:
@@ -200,6 +213,21 @@ def scan_files(
 ) -> FileScan:
     """Один обход: топ файлов по размеру и суммарные размеры расширений."""
     min_bytes = min_size_mb * 1024 * 1024
+    fast = mft.scan_volume(root, min_bytes, limit, cancel)
+    if fast is not None:
+        return FileScan(
+            files=fast.files,
+            extensions=[
+                ExtensionStat(ext, size, fast.extension_counts.get(ext, 0))
+                for ext, size in sorted(
+                    fast.extension_sizes.items(), key=lambda kv: kv[1], reverse=True
+                )
+            ],
+            total_files=fast.total_files,
+            total_bytes=fast.total_bytes,
+            truncated=fast.total_files > limit,
+        )
+
     heap: list[tuple[int, str, float, str]] = []
     ext_sizes: dict[str, int] = {}
     ext_counts: dict[str, int] = {}
