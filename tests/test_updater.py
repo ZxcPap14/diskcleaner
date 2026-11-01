@@ -204,3 +204,74 @@ def test_unreachable_github_host_is_network_error() -> None:
 
     assert result["status"] == updater.STATUS_ERROR
     assert "Не удалось получить данные" in result["message"]
+
+
+# ── ассет для автоустановки ──────────────────────────────
+
+
+def test_pick_asset_prefers_win64_zip() -> None:
+    payload = {
+        "assets": [
+            {"name": "notes.txt", "browser_download_url": "https://x/notes.txt"},
+            {"name": "DiskCleaner-1.1.1-setup.exe",
+             "browser_download_url": "https://x/setup.exe"},
+            {"name": "DiskCleanerWeb-1.1.1-win64.zip",
+             "browser_download_url": "https://x/win64.zip",
+             "size": 100, "digest": "sha256:" + "a" * 64},
+        ]
+    }
+
+    asset = updater.pick_asset(payload)
+
+    assert asset is not None
+    assert asset["url"] == "https://x/win64.zip"
+    assert asset["size"] == 100
+    assert asset["sha256"] == "sha256:" + "a" * 64
+
+
+def test_pick_asset_falls_back_to_any_zip() -> None:
+    payload = {"assets": [
+        {"name": "DiskCleaner-1.1.1.zip", "browser_download_url": "https://x/a.zip"},
+    ]}
+
+    assert updater.pick_asset(payload)["url"] == "https://x/a.zip"
+    assert updater.pick_asset({"assets": []}) is None
+
+
+def test_available_result_carries_download_asset() -> None:
+    payload = {
+        "tag_name": "v1.1.1",
+        "html_url": "https://x/release",
+        "assets": [
+            {"name": "DiskCleanerWeb-1.1.1-win64.zip",
+             "browser_download_url": "https://x/win64.zip"},
+        ],
+    }
+    with manifest_server(payload) as url:
+        result = updater.check_for_updates("1.1.0", url)
+
+    assert result["status"] == updater.STATUS_AVAILABLE
+    assert result["download"]["url"] == "https://x/win64.zip"
+
+
+def test_manifest_download_object_and_string() -> None:
+    with manifest_server({
+        "version": "9.9.9",
+        "download": {"url": "https://x/app.zip", "sha256": "b" * 64},
+    }) as url:
+        result = updater.check_for_updates("1.0.0", url)
+    assert result["download"] == {
+        "url": "https://x/app.zip", "name": "", "size": 0,
+        "sha256": "b" * 64,
+    }
+
+    with manifest_server({"version": "9.9.9", "download": "https://x/app.zip"}) as url:
+        result = updater.check_for_updates("1.0.0", url)
+    assert result["download"]["url"] == "https://x/app.zip"
+
+
+def test_up_to_date_has_no_download() -> None:
+    with manifest_server({"version": "1.0.0"}) as url:
+        result = updater.check_for_updates("1.0.0", url)
+
+    assert result["download"] is None

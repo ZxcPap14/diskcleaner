@@ -1,9 +1,10 @@
 """Проверка обновлений: последний релиз GitHub или свой JSON-манифест.
 
 По умолчанию источник — ``owner/repo`` на GitHub, тогда берётся
-``/releases/latest`` (draft и prerelease API не отдаёт). Можно указать и
-прямой http(s)-адрес манифеста вида
-``{"version": "4.21.0", "url": "https://…"}``.
+``/releases/latest`` (draft и prerelease API не отдаёт) и выбирается
+zip-ассет для автоустановки. Можно указать и прямой http(s)-адрес
+манифеста вида ``{"version": "4.21.0", "url": "https://…",
+"download": {"url": "https://…", "sha256": "<hex>"}}``.
 
 Сеть — единственный источник данных, поэтому все ошибки возвращаются
 строкой статуса, а не исключением.
@@ -71,8 +72,34 @@ def is_newer(latest: str, current: str) -> bool:
 
 
 def _result(status: str, message: str, latest: str | None = None,
-            url: str | None = None) -> dict:
-    return {"status": status, "message": message, "latest": latest, "url": url}
+            url: str | None = None,
+            download: dict | None = None) -> dict:
+    return {
+        "status": status, "message": message, "latest": latest,
+        "url": url, "download": download,
+    }
+
+
+def pick_asset(payload: dict) -> dict | None:
+    """Выбрать zip-ассет релиза для автоустановки (web-сборка win64)."""
+    assets = payload.get("assets") or []
+    zips = [
+        asset for asset in assets
+        if str(asset.get("name", "")).lower().endswith(".zip")
+        and asset.get("browser_download_url")
+    ]
+    win64 = [a for a in zips if "win64" in str(a.get("name", "")).lower()]
+    chosen = (win64 or zips)[:1]
+    if not chosen:
+        return None
+    asset = chosen[0]
+    return {
+        "url": str(asset["browser_download_url"]),
+        "name": str(asset.get("name", "")),
+        "size": int(asset.get("size") or 0),
+        # GitHub отдаёт «sha256:<hex>» в поле digest.
+        "sha256": str(asset.get("digest") or ""),
+    }
 
 
 def check_for_updates(
@@ -125,10 +152,26 @@ def check_for_updates(
     page = str(payload.get("html_url") or payload.get("url") or url)
 
     if is_newer(latest, current_version):
+        download = pick_asset(payload)
+        if download is None:
+            # Свой манифест может указать файл прямо: строкой или объектом.
+            raw = payload.get("download") or payload.get("download_url")
+            if isinstance(raw, dict):
+                download = {
+                    "url": str(raw.get("url") or ""),
+                    "name": str(raw.get("name") or ""),
+                    "size": int(raw.get("size") or 0),
+                    "sha256": str(raw.get("sha256") or raw.get("digest") or ""),
+                }
+                if not download["url"]:
+                    download = None
+            elif raw:
+                download = {"url": str(raw), "name": str(raw).rsplit("/", 1)[-1],
+                            "size": 0, "sha256": ""}
         return _result(
             STATUS_AVAILABLE,
             f"Доступна версия {latest} (у вас {current_version}).",
-            latest, page,
+            latest, page, download,
         )
     return _result(
         STATUS_UP_TO_DATE, f"Установлена последняя версия {current_version}.",

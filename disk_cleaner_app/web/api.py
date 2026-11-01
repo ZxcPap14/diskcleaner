@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 import webview
@@ -225,6 +226,44 @@ class Api:
             self._call("dc.updateResult(" + json.dumps(payload) + ")")
 
         return self._settings.check_updates(notify)
+
+    def install_update(self, download: dict[str, Any] | None = None) -> str:
+        """Скачать релиз, заменить файлы и перезапустить приложение."""
+        from disk_cleaner_app.services import update_install
+
+        def notify(payload: dict[str, Any]) -> None:
+            self._call("dc.updateResult(" + json.dumps(payload) + ")")
+
+        def worker() -> None:
+            try:
+                url = str((download or {}).get("url") or "")
+                sha256 = str((download or {}).get("sha256") or "") or None
+                if not url:
+                    raise update_install.UpdateError(
+                        "Сначала проверьте обновления."
+                    )
+                staged = update_install.stage(url, sha256)
+                update_install.apply(staged)
+                notify({
+                    "status": "installing",
+                    "message": "Обновление принято — приложение сейчас перезапустится.",
+                })
+                time.sleep(1.2)  # успеть показать сообщение перед выходом
+                try:
+                    self._window.hide()
+                finally:
+                    os._exit(0)
+            except update_install.UpdateError as e:
+                notify({"status": "error", "message": str(e)})
+            except Exception:  # noqa: BLE001
+                log.warning("Установка обновления не удалась", exc_info=True)
+                notify({
+                    "status": "error",
+                    "message": "Не удалось установить обновление.",
+                })
+
+        threading.Thread(target=worker, daemon=True, name="update-install").start()
+        return "started"
 
     def export_report(self, kind: str) -> dict[str, Any]:
         suffix = ".json" if kind == "json" else ".csv"

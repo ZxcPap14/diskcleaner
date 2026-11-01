@@ -87,6 +87,7 @@ let anaTreemapOn = false;
 let setst = null;
 let setSelRule = "";
 let setSelWl = "";
+let pendingDownload = null;
 const dupChecked = new Set();
 const dupCollapsed = new Set();
 
@@ -1413,6 +1414,9 @@ window.dc = {
     if (!payload) return;
     const note = $("#setUpdateNote");
     if (!note) return;
+    pendingDownload = payload.download || null;
+    const install = $("#setInstallUpdate");
+    if (install) install.hidden = !(payload.status === "available" && pendingDownload);
     const message = payload.message
       + (payload.status === "available" && payload.url ? ` Страница: ${payload.url}` : "");
     note.textContent = message;
@@ -1850,6 +1854,12 @@ function bind() {
   $("#setCheckUpdates").addEventListener("click", async () => {
     $("#setUpdateNote").textContent = "Проверяю обновления…";
     await api().check_updates();
+  });
+  $("#setInstallUpdate").addEventListener("click", () => {
+    const note = $("#setUpdateNote");
+    if (note) note.textContent = "Скачиваю обновление…";
+    status("Скачиваю и устанавливаю обновление — приложение перезапустится", "");
+    void api().install_update(pendingDownload);
   });
   $("#btnStop").addEventListener("click", stopScan);
   $("#btnSafe").addEventListener("click", async () => applyPayload(await api().safe_set()));
