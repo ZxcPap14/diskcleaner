@@ -1,17 +1,16 @@
 # Проверка собранного установщика на этой машине:
-# тихая установка → DiskCleaner.exe --self-test → тихое удаление.
+# тихая установка → exe --self-test → тихое удаление.
 #
-#   pwsh -File scripts\verify_installer.ps1 -Setup dist\DiskCleaner-Setup-4.10.3.exe
+#   pwsh -File scripts\verify_installer.ps1 -Setup dist\DiskCleanerWeb-Setup-1.1.0.exe
 #   powershell -File scripts\verify_installer.ps1 -Setup ... -KeepInstall
-#   pwsh -File scripts\verify_installer.ps1 -Setup dist\DiskCleanerWeb-Setup-1.1.0.exe `
-#       -Exe DiskCleanerWeb.exe -SkipSelfTest
+#   pwsh -File scripts\verify_installer.ps1 -Setup ... -SkipSelfTest
 param(
     [Parameter(Mandatory = $true)]
     [string]$Setup,
 
     [string]$InstallDir = (Join-Path $env:TEMP "DiskCleanerVerify"),
 
-    [string]$Exe = "DiskCleaner.exe",
+    [string]$Exe = "DiskCleanerWeb.exe",
 
     # Веб-сборка не умеет --self-test: проверяем только установку и удаление.
     [switch]$SkipSelfTest,
@@ -73,7 +72,7 @@ if ($SkipSelfTest) {
     if (-not $payload.frozen) {
         throw "Запущен не exe-сборка: $($payload.executable)"
     }
-    Write-Host "   версия $($payload.version), Python $($payload.python), Tk OK"
+    Write-Host "   версия $($payload.version), Python $($payload.python), web OK"
 }
 
 if (-not $KeepInstall) {

@@ -124,9 +124,9 @@ def main() -> None:
         if args.silent:
             raise SystemExit(code)
 
-    from disk_cleaner_app.ui.app import main as run
+    from disk_cleaner_app.web.shell import main as run
 
-    run(start_minimized=args.tray)
+    run()
 
 
 if __name__ == "__main__":

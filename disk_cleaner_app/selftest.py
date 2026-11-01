@@ -1,7 +1,7 @@
-"""Самопроверка сборки: `DiskCleaner.exe --self-test`.
+"""Самопроверка сборки: `DiskCleanerWeb.exe --self-test`.
 
 Проверяет то, что чаще всего ломается при переносе exe на другой ПК:
-встроенный Python/Tk, импорт зависимостей, запись в `%APPDATA%`, SQLite
+встроенный Python, импорт зависимостей, запись в `%APPDATA%`, SQLite
 и доступность PowerShell. Результат пишется в JSON, потому что у сборки
 нет консоли; код возврата — 0, если все критичные проверки прошли.
 """
@@ -28,28 +28,6 @@ def _check(name: str, func: Callable[[], str], *, critical: bool = True) -> dict
             "detail": f"{type(exc).__name__}: {exc}",
         }
     return {"ok": True, "critical": critical, "detail": detail}
-
-
-def _check_tk() -> str:
-    import tkinter
-
-    root = tkinter.Tk()
-    try:
-        root.withdraw()
-        root.update_idletasks()
-        return f"Tk {tkinter.TkVersion}"
-    finally:
-        root.destroy()
-
-
-def _check_imports() -> str:
-    import customtkinter
-    import squarify  # noqa: F401
-
-    from disk_cleaner_app.services import planner  # noqa: F401
-    from disk_cleaner_app.ui import app  # noqa: F401
-
-    return f"customtkinter {customtkinter.__version__}, squarify ok"
 
 
 def _check_web_imports() -> str:
@@ -115,15 +93,8 @@ def _check_tray() -> str:
 def collect_checks() -> dict:
     from disk_cleaner_app import __version__
 
-    # Веб-сборка живёт без Tk/customtkinter: они из неё исключены,
-    # поэтому Tk-проверки заменяются на pywebview. Трей есть в обеих.
-    web_mode = os.environ.get("DISKCLEANER_WEB") == "1"
     checks: dict = {}
-    if web_mode:
-        checks["web_imports"] = _check("web_imports", _check_web_imports)
-    else:
-        checks["tk"] = _check("tk", _check_tk)
-        checks["imports"] = _check("imports", _check_imports)
+    checks["web_imports"] = _check("web_imports", _check_web_imports)
     checks["sqlite"] = _check("sqlite", _check_sqlite)
     checks["config_write"] = _check("config_write", _check_config_write)
     checks["temp_write"] = _check("temp_write", _check_temp_write)
@@ -134,7 +105,7 @@ def collect_checks() -> dict:
     return {
         "app": "DiskCleaner Pro",
         "version": __version__,
-        "mode": "web" if web_mode else "tk",
+        "mode": "web",
         "ok": ok,
         "frozen": bool(getattr(sys, "frozen", False)),
         "executable": sys.executable,

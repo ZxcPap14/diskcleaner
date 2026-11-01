@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [{name = "ZCode"}]
-keywords = ["windows", "cleaner", "disk", "cache", "cleanup", "tkinter"]
+keywords = ["windows", "cleaner", "disk", "cache", "cleanup", "webview"]
 classifiers = [
     "Environment :: Win32 (MS Windows)",
     "Intended Audience :: End Users/Desktop",
@@ -22,8 +22,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "customtkinter>=5.2,<7",
-    "squarify>=0.4.4,<1",
     "pystray>=0.19,<1",
     "pillow>=10,<13",
     # Новый интерфейс рисуется в WebView2 (Edge Chromium): сам рантайм
@@ -41,8 +39,7 @@ dev = [
 ]
 
 [project.gui-scripts]
-disk-cleaner = "disk_cleaner_app.ui.app:main"
-disk-cleaner-web = "disk_cleaner_app.web.shell:main"
+disk-cleaner = "disk_cleaner_app.web.shell:main"
 
 [tool.setuptools.packages.find]
 include = ["disk_cleaner_app*"]
@@ -70,5 +67,5 @@ python_version = "3.12"
 exclude = 'disk_cleaner_app/legacy'
 
 [[tool.mypy.overrides]]
-module = ["customtkinter", "customtkinter.*", "squarify", "squarify.*", "pystray", "pystray.*"]
+module = ["pystray", "pystray.*"]
 ignore_missing_imports = true

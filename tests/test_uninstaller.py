@@ -122,15 +122,6 @@ def test_duplicates_are_removed_from_candidates(tmp_path: Path) -> None:
     assert len(leftovers) == 1
 
 
-def test_install_date_label_formats_registry_value() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    assert UninstallerView._install_date_label({"install_date": "20260115"}) == "2026-01-15"
-    assert UninstallerView._install_date_label({"install_date": ""}) == "—"
-    assert UninstallerView._install_date_label({}) == "—"
-    assert UninstallerView._install_date_label({"install_date": "bad"}) == "—"
-
-
 def test_install_size_counts_install_folder(tmp_path: Path) -> None:
     uninstaller = AppUninstaller(appdata_roots=[], program_roots=[])
     target = tmp_path / "TestApp"
@@ -205,25 +196,6 @@ def test_uninstall_many_stops_before_next_app() -> None:
 
 def test_uninstall_many_handles_empty_list() -> None:
     assert _FakeUninstaller().uninstall_many([]) == []
-
-
-def test_size_text_shows_real_estimate_and_pending() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    assert UninstallerView._size_text({"real_size": 1024}) == "1.0 КБ"
-    assert UninstallerView._size_text({"real_size": None}) == "—"
-    assert UninstallerView._size_text(
-        {"size_kb": 2048, "install_location": r"C:\App"}
-    ) == "≈ 2.0 МБ"
-    assert UninstallerView._size_text({"install_location": r"C:\App"}) == "…"
-    assert UninstallerView._size_text({}) == "—"
-
-
-def test_size_key_prefers_real_size() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    assert UninstallerView._size_key({"real_size": 10, "size_kb": 1}) == 10
-    assert UninstallerView._size_key({"size_kb": 1}) == 1024
 
 
 # ── диски, портативные программы ────────────────────────
@@ -378,51 +350,6 @@ def test_safe_remove_target_blocks_forbidden_components(tmp_path: Path) -> None:
     assert uninstaller._is_safe_remove_target(svi) is False
 
 
-# ── диаграмма и строки списка ───────────────────────────
-
-
-def test_chart_data_top_and_rest() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    apps = [
-        {"name": f"App{i}", "real_size": 1000 - i} for i in range(15)
-    ]
-    data = UninstallerView._chart_data(apps, top=10)
-
-    assert len(data) == 11
-    assert data[0] == ("App0", 1000)
-    assert data[-1][0] == "Остальные: 5"
-    assert data[-1][1] == sum(1000 - i for i in range(10, 15))
-
-
-def test_chart_data_skips_zero_sizes() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    apps = [{"name": "Big", "real_size": 500}, {"name": "Unknown", "real_size": None}]
-    data = UninstallerView._chart_data(apps)
-
-    assert data == [("Big", 500)]
-
-
-def test_row_values_marks_portable_and_disk() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    installed = UninstallerView._row_values(
-        {"name": "App", "version": "1.0", "drive": "C:", "real_size": 2048,
-         "install_date": "20260102"}
-    )
-    assert installed == ("App", "C:", "1.0", "2.0 КБ", "2026-01-02")
-
-    portable = UninstallerView._row_values(
-        {"name": "Tool", "portable": True, "drive": "D:", "real_size": None}
-    )
-    assert portable[0] == "📦 Tool"
-    assert portable[1] == "D:"
-
-    unknown = UninstallerView._row_values({"name": "X"})
-    assert unknown[1] == "—"
-
-
 # ── UWP/Store и точка восстановления (4.16.0) ───────────
 
 
@@ -501,24 +428,3 @@ def test_restore_point_logs_success_and_failure() -> None:
 
     logs = uninstaller.restore_point_logs([{"name": "A"}], fail_point, enabled=True)
     assert logs and "продолжится без неё" in logs[0]
-
-
-def test_uwp_note_in_confirmation() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    uwp_apps = [{"name": f"App{i}", "uwp": True} for i in range(5)]
-    note = UninstallerView._uwp_note(uwp_apps)
-    assert "Remove-AppxPackage" in note
-    assert "App0, App1, App2" in note and "и ещё 2" in note
-
-    assert UninstallerView._uwp_note([{"name": "Win32"}]) == ""
-    assert UninstallerView._uwp_note([]) == ""
-
-
-def test_row_values_marks_uwp() -> None:
-    from disk_cleaner_app.ui.views.uninstaller import UninstallerView
-
-    row = UninstallerView._row_values(
-        {"name": "Microsoft.WindowsCalculator", "uwp": True, "drive": "C:"}
-    )
-    assert row[0] == "🪟 Microsoft.WindowsCalculator"

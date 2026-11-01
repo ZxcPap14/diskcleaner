@@ -1,4 +1,4 @@
-customtkinter>=5.2,<7
-squarify>=0.4.4,<1
 pystray>=0.19,<1
 pillow>=10,<13
+pywebview>=6.2,<7
+pythonnet>=3.2,<4

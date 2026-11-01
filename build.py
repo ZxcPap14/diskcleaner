@@ -29,17 +29,18 @@ for stream in (sys.stdout, sys.stderr):
         pass
 
 APP_NAME = "DiskCleaner"
-MAIN_SCRIPT = os.path.join("disk_cleaner_app", "__main__.py")
+# Сборка всегда веб-версии: Tk-интерфейс удалён.
+WEB_NAME = "DiskCleanerWeb"
+MAIN_SCRIPT = os.path.join("disk_cleaner_app", "web", "shell.py")
 DIST_DIR = "dist"
 BUILD_DIR = "build"
 ICON_PATH = os.path.join("assets", "diskcleaner.ico")
 VERSION_FILE = os.path.join(BUILD_DIR, "version_info.txt")
 
 # Старые монолитные модули: в сборку не попадают.
-# NumPy/SciPy/pandas/matplotlib попадают в граф зависимостей только через
-# необязательный `squarify.plot` (matplotlib) и весят ~25 МБ, хотя приложение
-# их не импортирует. AVIF/WebP-плагины Pillow тоже не нужны: CustomTkinter
-# рисует PNG/ICO. Без них установщик вдвое меньше.
+# NumPy/SciPy/pandas/matplotlib тянутся только необязательными зависимостями
+# и весят ~25 МБ, хотя приложение их не импортирует. AVIF/WebP-плагины
+# Pillow не нужны: иконка трея — ICO.
 EXCLUDES = [
     "disk_cleaner_app.legacy",
     "numpy",
@@ -110,7 +111,6 @@ def write_version_file(version: str) -> str:
 def build_command(
     uac_admin: bool = False,
     version_file: str | None = None,
-    web: bool = False,
     onedir: bool = False,
 ) -> list[str]:
     cmd = [
@@ -121,40 +121,23 @@ def build_command(
         "--noconsole",
         "--clean",
         "--noconfirm",
-        "--name", "DiskCleanerWeb" if web else APP_NAME,
+        "--name", WEB_NAME,
         "--distpath", DIST_DIR,
         "--workpath", BUILD_DIR,
         "--specpath", BUILD_DIR,
-    ]
-    if web:
         # pywebview грузит WinForms-бэкенд и WebView2-лоадер по имени
         # (pythonnet/clr), поэтому их нужно тянуть целиком, а не по импортам.
-        cmd += [
-            "--collect-all", "webview",
-            "--hidden-import", "webview.platforms.winforms",
-            "--hidden-import", "clr",
-            "--hidden-import", "pythonnet",
-        ]
-        # Tk-стек веб-интерфейсу не нужен — выкидываем целиком.
-        # pystray/Pillow остаются: на них работает иконка в трее.
-        for module in ("tkinter", "_tkinter", "customtkinter", "squarify"):
-            cmd += ["--exclude-module", module]
-        cmd += [
-            # pystray выбирает бэкенд динамически — без этого трей молча
-            # отсутствует в собранном exe.
-            "--hidden-import", "pystray",
-            "--hidden-import", "pystray._win32",
-        ]
-    else:
-        cmd += [
-            "--collect-data", "customtkinter",
-            "--hidden-import", "customtkinter",
-            "--hidden-import", "squarify",
-            # pystray выбирает бэкенд динамически — без этого трей молча
-            # отсутствует в собранном exe.
-            "--hidden-import", "pystray",
-            "--hidden-import", "pystray._win32",
-        ]
+        "--collect-all", "webview",
+        "--hidden-import", "webview.platforms.winforms",
+        "--hidden-import", "clr",
+        "--hidden-import", "pythonnet",
+        # pystray выбирает бэкенд динамически — без этого трей молча
+        # отсутствует в собранном exe.
+        "--hidden-import", "pystray",
+        "--hidden-import", "pystray._win32",
+    ]
+    for module in ("tkinter", "_tkinter", "customtkinter", "squarify"):
+        cmd += ["--exclude-module", module]
     if os.path.exists(ICON_PATH):
         cmd += ["--icon", os.path.abspath(ICON_PATH)]
     assets_dir = os.path.abspath("assets")
@@ -167,28 +150,20 @@ def build_command(
     if uac_admin:
         # Манифест requireAdministrator: UAC при каждом запуске.
         cmd.append("--uac-admin")
-    if web:
-        webui_dir = os.path.abspath(os.path.join("disk_cleaner_app", "webui"))
-        cmd += ["--add-data", f"{webui_dir}{os.pathsep}disk_cleaner_app/webui"]
+    webui_dir = os.path.abspath(os.path.join("disk_cleaner_app", "webui"))
+    cmd += ["--add-data", f"{webui_dir}{os.pathsep}disk_cleaner_app/webui"]
     for module in EXCLUDES:
         cmd += ["--exclude-module", module]
-    cmd.append(
-        os.path.join("disk_cleaner_app", "web", "shell.py") if web else MAIN_SCRIPT
-    )
+    cmd.append(MAIN_SCRIPT)
     return cmd
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Сборка DiskCleaner.exe")
+    parser = argparse.ArgumentParser(description="Сборка DiskCleanerWeb.exe")
     parser.add_argument(
         "--uac-admin",
         action="store_true",
         help="встроить манифест requireAdministrator (UAC при запуске)",
-    )
-    parser.add_argument(
-        "--web",
-        action="store_true",
-        help="собрать новый интерфейс на WebView2 (DiskCleanerWeb.exe)",
     )
     parser.add_argument(
         "--onedir",
@@ -201,8 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     version = project_version()
     version_file = write_version_file(version)
     cmd = build_command(
-        uac_admin=args.uac_admin, version_file=version_file, web=args.web,
-        onedir=args.onedir,
+        uac_admin=args.uac_admin, version_file=version_file, onedir=args.onedir,
     )
 
     print("🛠️  Building", APP_NAME, f"v{version}", "...")
@@ -217,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         print("❌ Build failed.")
         return result.returncode
 
-    name = "DiskCleanerWeb" if args.web else APP_NAME
+    name = WEB_NAME
     if args.onedir:
         # onedir кладёт exe в подкаталог dist\<имя>\.
         exe_path = os.path.join(DIST_DIR, name, f"{name}.exe")

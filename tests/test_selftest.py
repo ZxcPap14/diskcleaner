@@ -17,7 +17,7 @@ def _payload(ok: bool = True) -> dict:
         "python": "3.12.0",
         "platform": "Windows-10",
         "checks": {
-            "tk": {"ok": ok, "critical": True, "detail": "Tk 8.6"},
+            "web_imports": {"ok": ok, "critical": True, "detail": "pywebview ok"},
         },
     }
 
@@ -35,8 +35,6 @@ def test_check_captures_exception_and_critical_flag() -> None:
 
 
 def test_collect_checks_fails_only_on_critical_checks(monkeypatch) -> None:
-    monkeypatch.setattr(selftest, "_check_tk", lambda: "Tk 8.6")
-    monkeypatch.setattr(selftest, "_check_imports", lambda: "imports ok")
     monkeypatch.setattr(selftest, "_check_sqlite", lambda: "SQLite 3")
     monkeypatch.setattr(selftest, "_check_config_write", lambda: "appdata")
     monkeypatch.setattr(selftest, "_check_temp_write", lambda: "temp")
@@ -53,12 +51,12 @@ def test_collect_checks_fails_only_on_critical_checks(monkeypatch) -> None:
     assert payload["ok"] is True
     assert payload["checks"]["powershell"]["critical"] is False
     assert payload["checks"]["admin"]["ok"] is True
-    assert payload["checks"]["tk"]["ok"] is True
+    assert payload["checks"]["web_imports"]["ok"] is True
 
-    def broken_tk() -> str:
-        raise RuntimeError("нет Tk")
+    def broken_web() -> str:
+        raise RuntimeError("нет pywebview")
 
-    monkeypatch.setattr(selftest, "_check_tk", broken_tk)
+    monkeypatch.setattr(selftest, "_check_web_imports", broken_web)
     assert selftest.collect_checks()["ok"] is False
 
 
@@ -70,7 +68,7 @@ def test_run_self_test_writes_utf8_report(monkeypatch, tmp_path: Path) -> None:
     assert selftest.run_self_test(target) == 0
     saved = json.loads(target.read_text(encoding="utf-8"))
     assert saved["version"] == "4.10.3"
-    assert saved["checks"]["tk"]["detail"] == "Tk 8.6"
+    assert saved["checks"]["web_imports"]["detail"] == "pywebview ok"
 
 
 def test_run_self_test_returns_failure_code(monkeypatch, tmp_path: Path) -> None:

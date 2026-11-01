@@ -1,7 +1,7 @@
 # 🧹 DiskCleaner Pro
 
 Windows-утилита для очистки диска в стиле CCleaner / BleachBit / WinDirStat.
-Написана на Python + CustomTkinter.
+Написана на Python + WebView2 (pywebview): интерфейс — HTML/CSS/JS.
 
 ## Возможности
 
@@ -115,16 +115,16 @@ python -m disk_cleaner_app --portable
 pip install -e ".[dev]"
 pytest
 ruff check .
-mypy disk_cleaner_app/models disk_cleaner_app/services disk_cleaner_app/cleaners disk_cleaner_app/ui --ignore-missing-imports
+mypy disk_cleaner_app/models disk_cleaner_app/services disk_cleaner_app/cleaners disk_cleaner_app/web --ignore-missing-imports
 ```
 
 ## Сборка exe
 
 ```powershell
-python build.py
+python build.py --onedir
 ```
 
-Результат: `dist\DiskCleaner.exe`.
+Результат: `dist\DiskCleanerWeb\DiskCleanerWeb.exe` рядом с папкой `_internal`.
 
 Для сборки с манифестом `requireAdministrator` (UAC при каждом запуске):
 
@@ -143,16 +143,14 @@ python build_installer.py --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 
 Скрипт соберёт exe, установщик и портативный архив:
 
-- `dist\DiskCleaner.exe` — портативная версия (один файл, запускается без установки);
-- `dist\DiskCleaner-Setup-4.10.4.exe` — установщик;
-- `dist\DiskCleaner-4.10.4-portable.zip` — exe + README + лицензия;
+- `dist\DiskCleanerWeb\DiskCleanerWeb.exe` — портативная версия (папка, запускается без установки);
+- `dist\DiskCleanerWeb-Setup-1.1.0.exe` — установщик;
+- `dist\DiskCleanerWeb-1.1.0-win64.zip` — exe + `_internal` + README + лицензия;
 - `dist\SHA256SUMS.txt` — контрольные суммы.
 
-Сборка весит около 15 МБ. NumPy/SciPy/pandas/matplotlib и AVIF/WebP-плагины
-Pillow в неё не попадают: приложение их не импортирует, а в граф зависимостей
-они приходят через необязательный `squarify.plot`. Список исключений —
-`EXCLUDES` в `build.py` и `DiskCleaner.spec`; тест `tests\test_build.py`
-следит, чтобы два списка не разъехались.
+NumPy/SciPy/pandas/matplotlib и AVIF/WebP-плагины Pillow в сборку не попадают:
+приложение их не импортирует. Список исключений — `EXCLUDES` в `build.py`;
+тест `tests\test_build.py` проверяет, что тяжёлые пакеты действительно исключены.
 
 Установщик ставит приложение в профиль пользователя
 (`%LOCALAPPDATA%\Programs\DiskCleaner Pro`), поэтому не требует прав
@@ -177,10 +175,10 @@ python build_installer.py --uac-admin
 Собранный exe умеет проверять сам себя без запуска интерфейса:
 
 ```powershell
-.\dist\DiskCleaner.exe --self-test
+.\dist\DiskCleanerWeb\DiskCleanerWeb.exe --self-test
 ```
 
-Проверяются Tk, импорт CustomTkinter/squarify, SQLite, запись в
+Проверяются импорт pywebview и планировщика, SQLite, запись в
 `%APPDATA%\DiskCleaner` и `%TEMP%`, наличие PowerShell и права
 администратора. Отчёт пишется в `%TEMP%\DiskCleaner-selftest.json`
 (UTF-8), код возврата 0 — критические проверки прошли. Тот же отчёт
@@ -190,7 +188,7 @@ python build_installer.py --uac-admin
 удаление) — в PowerShell:
 
 ```powershell
-.\scripts\verify_installer.ps1 -Setup .\dist\DiskCleaner-Setup-4.10.4.exe
+.\scripts\verify_installer.ps1 -Setup .\dist\DiskCleanerWeb-Setup-1.1.0.exe
 ```
 
 Скрипт ставит приложение во временную папку, требует `frozen: true` и
@@ -283,7 +281,8 @@ disk_cleaner_app/
 ├── models/      # конфиг, история, модели данных
 ├── services/    # сканирование, очистка, анализ, дубликаты, отчёты, диагностика дисков
 ├── cleaners/    # цели очистки по категориям
-└── ui/          # CustomTkinter: окна, компоненты, темы
+├── web/         # мост Python ↔ JS, окно WebView2, настройки
+└── webui/       # HTML/CSS/JS интерфейса
 
 assets/          # иконка приложения и картинки установщика
 installer/       # NSIS-сценарий установщика

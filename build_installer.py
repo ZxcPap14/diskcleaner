@@ -2,14 +2,12 @@
 
 Пример:
     python build_installer.py
-    python build_installer.py --web --sign-cert <SHA1>
+    python build_installer.py --sign-cert <SHA1>
     python build_installer.py --makensis "C:\\Program Files (x86)\\NSIS\\makensis.exe"
     python build_installer.py --no-build
 
-По умолчанию сначала вызывается ``build.py`` (PyInstaller onefile), затем
-компилируется ``installer/DiskCleaner.nsi`` и создаётся портативный архив.
-С ``--web`` собирается веб-интерфейс (onedir ``dist\\DiskCleanerWeb``), а
-установщик получает имя ``DiskCleanerWeb-Setup-<версия>.exe``.
+Сначала вызывается ``build.py`` (PyInstaller onedir ``dist\\DiskCleanerWeb``),
+затем компилируется ``installer/DiskCleaner.nsi`` и создаётся портативный архив.
 """
 from __future__ import annotations
 
@@ -34,8 +32,7 @@ for stream in (sys.stdout, sys.stderr):
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
-APP_EXE = "DiskCleaner.exe"
-# Веб-сборка — onedir: exe лежит рядом с папкой _internal.
+# onedir: exe лежит рядом с папкой _internal.
 WEB_EXE = "DiskCleanerWeb.exe"
 WEB_DIST = DIST / "DiskCleanerWeb"
 INSTALLER_SCRIPT = ROOT / "installer" / "DiskCleaner.nsi"
@@ -126,14 +123,13 @@ def sign_file(path: Path, signtool: Path, cert: str, timestamp: str) -> None:
         raise SystemExit(f"Подпись {path.name} не прошла проверку")
 
 
-def run_build(uac_admin: bool, web: bool) -> None:
+def run_build(uac_admin: bool) -> None:
     cmd = [sys.executable, str(ROOT / "build.py")]
     if uac_admin:
         cmd.append("--uac-admin")
-    if web:
-        # Веб-интерфейс собирается только onedir: onefile распаковывает
-        # WebView2-pythonnet в %TEMP% и стартует заметно дольше.
-        cmd += ["--web", "--onedir"]
+    # Сборка всегда onedir: onefile распаковывает WebView2-pythonnet
+    # в %TEMP% и стартует заметно дольше.
+    cmd.append("--onedir")
     print("🛠️  Сборка exe через build.py ...")
     result = subprocess.run(cmd, cwd=ROOT)
     if result.returncode != 0:
@@ -141,20 +137,19 @@ def run_build(uac_admin: bool, web: bool) -> None:
 
 
 def run_makensis(
-    makensis: Path, version: str, setup_path: Path, web: bool
+    makensis: Path, version: str, setup_path: Path
 ) -> None:
     cmd = [
         str(makensis),
         "/V2",
         f"/DAPP_VERSION={version}",
-        f"/DSOURCE_DIR={WEB_DIST if web else DIST}",
+        f"/DSOURCE_DIR={WEB_DIST}",
         f"/DPROJECT_DIR={ROOT}",
         f"/DOUTPUT_FILE={setup_path}",
-        f"/DAPP_EXE={WEB_EXE if web else APP_EXE}",
+        f"/DAPP_EXE={WEB_EXE}",
+        "/DWEB_BUILD",
+        str(INSTALLER_SCRIPT),
     ]
-    if web:
-        cmd.append("/DWEB_BUILD")
-    cmd.append(str(INSTALLER_SCRIPT))
     print("📦  Компиляция установщика NSIS ...")
     result = subprocess.run(
         cmd, cwd=ROOT, env=nsis_environment(makensis),
@@ -165,26 +160,15 @@ def run_makensis(
         )
 
 
-def make_portable(version: str, web: bool) -> Path:
-    if web:
-        zip_path = DIST / f"DiskCleanerWeb-{version}-win64.zip"
-        print("🗜️  Создание portable ZIP ...")
-        with zipfile.ZipFile(
-            zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
-        ) as archive:
-            for path in sorted(WEB_DIST.rglob("*")):
-                if path.is_file():
-                    archive.write(path, path.relative_to(WEB_DIST))
-            archive.write(ROOT / "README.md", "README.md")
-            archive.write(ROOT / "LICENSE", "LICENSE")
-        return zip_path
-
-    zip_path = DIST / f"DiskCleaner-{version}-portable.zip"
+def make_portable(version: str) -> Path:
+    zip_path = DIST / f"DiskCleanerWeb-{version}-win64.zip"
     print("🗜️  Создание portable ZIP ...")
     with zipfile.ZipFile(
         zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
     ) as archive:
-        archive.write(DIST / APP_EXE, APP_EXE)
+        for path in sorted(WEB_DIST.rglob("*")):
+            if path.is_file():
+                archive.write(path, path.relative_to(WEB_DIST))
         archive.write(ROOT / "README.md", "README.md")
         archive.write(ROOT / "LICENSE", "LICENSE")
     return zip_path
@@ -211,7 +195,7 @@ def human_size(path: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Собрать DiskCleaner.exe, установщик и portable ZIP"
+        description="Собрать DiskCleanerWeb.exe, установщик и portable ZIP"
     )
     parser.add_argument(
         "--makensis",
@@ -220,18 +204,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-build",
         action="store_true",
-        help="не запускать build.py, использовать готовый dist\\DiskCleaner.exe",
+        help="не запускать build.py, использовать готовый dist\\DiskCleanerWeb",
     )
     parser.add_argument(
         "--uac-admin",
         action="store_true",
         help="собрать exe с манифестом requireAdministrator",
-    )
-    parser.add_argument(
-        "--web",
-        action="store_true",
-        help="собрать веб-интерфейс (onedir dist\\DiskCleanerWeb) "
-             "вместо Tk-версии",
     )
     parser.add_argument(
         "--sign-cert",
@@ -252,9 +230,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"🚀  DiskCleaner Pro {version}")
 
     if not args.no_build:
-        run_build(args.uac_admin, args.web)
+        run_build(args.uac_admin)
 
-    exe_path = WEB_DIST / WEB_EXE if args.web else DIST / APP_EXE
+    exe_path = WEB_DIST / WEB_EXE
     if not exe_path.is_file():
         raise SystemExit(f"Не найден {exe_path}. Запустите build.py.")
 
@@ -274,18 +252,15 @@ def main(argv: list[str] | None = None) -> int:
 
     makensis = find_makensis(args.makensis)
     print(f"🔧  NSIS: {makensis}")
-    setup_name = (
-        f"DiskCleanerWeb-Setup-{version}.exe" if args.web
-        else f"DiskCleaner-Setup-{version}.exe"
-    )
+    setup_name = f"DiskCleanerWeb-Setup-{version}.exe"
     setup_path = DIST / setup_name
-    run_makensis(makensis, version, setup_path, args.web)
+    run_makensis(makensis, version, setup_path)
     if not setup_path.is_file():
         raise SystemExit(f"Установщик не создан: {setup_path}")
     if signtool is not None:
         sign_file(setup_path, signtool, args.sign_cert, args.timestamp_url)
 
-    portable_path = make_portable(version, args.web)
+    portable_path = make_portable(version)
     hashes = write_hashes([exe_path, setup_path, portable_path])
 
     print("\n✅  Готово:")

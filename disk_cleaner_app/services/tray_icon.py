@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 def tray_available() -> bool:
-    """Установлены ли pystray и Pillow (Pillow идёт с customtkinter)."""
+    """Установлены ли pystray и Pillow."""
     try:
         import pystray  # noqa: F401
         from PIL import Image  # noqa: F401

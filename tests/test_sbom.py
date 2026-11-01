@@ -27,5 +27,5 @@ def test_sbom_written_with_components(tmp_path: Path) -> None:
 
     assert component["version"] == __version__
     names = [c["name"].lower() for c in data["components"]]
-    assert "customtkinter" in names
+    assert "pywebview" in names
     assert names == sorted(names)

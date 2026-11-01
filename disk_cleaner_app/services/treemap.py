@@ -14,7 +14,7 @@ class TreemapNode:
     size: int
     is_dir: bool = True
     children: list[TreemapNode] = field(default_factory=list)
-    # Для squarify
+    # Геометрия узла для раскладки (treemap в веб-интерфейсе).
     x: float = 0
     y: float = 0
     w: float = 0

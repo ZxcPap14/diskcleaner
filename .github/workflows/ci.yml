@@ -31,20 +31,20 @@ jobs:
       - name: Ruff
         run: >-
           python -m ruff check disk_cleaner_app/models disk_cleaner_app/services
-          disk_cleaner_app/cleaners disk_cleaner_app/ui disk_cleaner_app/__main__.py
+          disk_cleaner_app/cleaners disk_cleaner_app/web disk_cleaner_app/__main__.py
           disk_cleaner_app/selftest.py disk_cleaner_app/__init__.py build.py tests
 
       - name: Mypy
         run: >-
           python -m mypy disk_cleaner_app/models disk_cleaner_app/services
-          disk_cleaner_app/cleaners disk_cleaner_app/ui disk_cleaner_app/selftest.py
+          disk_cleaner_app/cleaners disk_cleaner_app/web disk_cleaner_app/selftest.py
           --ignore-missing-imports
 
       - name: Pytest
         run: python -m pytest
 
-      - name: Build exe
-        run: python build.py
+      - name: Build app
+        run: python build.py --onedir
 
       - name: Install NSIS
         run: choco install nsis -y --no-progress
@@ -57,15 +57,14 @@ jobs:
         run: |
           $version = (Select-String -Path disk_cleaner_app\__init__.py `
             -Pattern '__version__ = "([^"]+)"').Matches.Groups[1].Value
-          ./scripts/verify_installer.ps1 -Setup "dist\DiskCleaner-Setup-$version.exe"
+          ./scripts/verify_installer.ps1 -Setup "dist\DiskCleanerWeb-Setup-$version.exe" -SkipSelfTest
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DiskCleaner-${{ github.sha }}
           path: |
-            dist/DiskCleaner.exe
-            dist/DiskCleaner-Setup-*.exe
-            dist/DiskCleaner-*-portable.zip
+            dist/DiskCleanerWeb-Setup-*.exe
+            dist/DiskCleanerWeb-*-win64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error

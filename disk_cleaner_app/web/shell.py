@@ -15,9 +15,6 @@ from pathlib import Path
 
 import webview
 
-# Метка веб-сборки: selftest понижает Tk-проверки до некритичных.
-os.environ.setdefault("DISKCLEANER_WEB", "1")
-
 # Портативный режим применяем ДО импорта моделей: CONFIG_DIR читает
 # переменную окружения один раз при импорте models.config.
 if "--portable" in sys.argv:
