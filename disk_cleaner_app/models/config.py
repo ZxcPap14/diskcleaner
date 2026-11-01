@@ -34,6 +34,9 @@ DEFAULT_CONFIG: dict = {
     # Стирание вместо удаления: содержимое перезаписывается нулями.
     "secure_erase": False,
     "theme": "dark",
+    # Язык интерфейса и масштаб (100–150 %) применяет webui/i18n.js.
+    "ui_lang": "ru",
+    "ui_scale": 100,
     "last_scan": None,
     # owner/repo на GitHub или прямой адрес JSON-манифеста (см. services/updater.py).
     "update_source": "ZxcPap14/diskcleaner",
@@ -65,6 +68,10 @@ def _valid_config_value(key: str, value) -> bool:
         return isinstance(value, bool)
     if key == "theme":
         return value in _VALID_THEMES
+    if key == "ui_lang":
+        return value in ("ru", "en")
+    if key == "ui_scale":
+        return isinstance(value, int) and not isinstance(value, bool) and 100 <= value <= 150
     if key == "last_scan":
         return value is None or isinstance(value, str)
     return key in DEFAULT_CONFIG

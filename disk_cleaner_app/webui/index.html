@@ -433,6 +433,22 @@
               <option value="system">Как в системе</option>
             </select>
           </div>
+          <div class="set-row">
+            <div class="set-text"><b>Язык интерфейса</b><span>Применяется сразу</span></div>
+            <select class="select" id="setLang">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <div class="set-text"><b>Масштаб интерфейса</b><span>Применяется сразу</span></div>
+            <select class="select" id="setScale">
+              <option value="100">100%</option>
+              <option value="110">110%</option>
+              <option value="125">125%</option>
+              <option value="150">150%</option>
+            </select>
+          </div>
           <label class="set-row">
             <span class="set-text"><b>Перемещать удалённое в корзину</b>
               <span>Корзина не освобождает место до своей очистки</span></span>
@@ -605,6 +621,7 @@
 
 <div class="modal-root" id="modalRoot"></div>
 
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

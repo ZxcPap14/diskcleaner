@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 EDITABLE_KEYS = {
     "theme", "to_recycle", "safe_mode", "restore_point", "deep_threshold_gb",
     "tray_enabled", "start_minimized", "update_source", "secure_erase",
+    "ui_lang", "ui_scale",
 }
 
 SAFETY_LABELS = {"🟢": "Безопасно", "🟡": "Осторожно", "🔴": "Продвинутый"}
@@ -44,6 +45,8 @@ class SettingsService:
         return {
             "version": __version__,
             "theme": str(self._config.get("theme", "dark")),
+            "ui_lang": str(self._config.get("ui_lang", "ru")),
+            "ui_scale": int(self._config.get("ui_scale", 100)),
             "to_recycle": bool(self._config.get("to_recycle", False)),
             "secure_erase": bool(self._config.get("secure_erase", False)),
             "safe_mode": bool(self._config.get("safe_mode", True)),
@@ -73,6 +76,12 @@ class SettingsService:
                 value = max(0.0, float(raw))
             except ValueError:
                 value = 10.0
+        if key == "ui_scale":
+            # Из <select> приходит строка: приводим к int и держим в 100–150.
+            try:
+                value = min(150, max(100, int(value)))
+            except (TypeError, ValueError):
+                value = 100
         self._config.set(key, value)
         return self.state()
 

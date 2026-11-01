@@ -150,7 +150,7 @@ function showView(id) {
   } else {
     $("#pageTitle").textContent = navLabel(id) || "Раздел";
     $("#pageSub").textContent = "Экран ещё не перенесён на новый интерфейс";
-    $("#soonTitle").textContent = `«${navLabel(id)}» пока в Tk-версии`;
+      $("#soonTitle").textContent = tf`«${navLabel(id)}» пока в Tk-версии`;
   }
   for (const item of document.querySelectorAll(".rail-item")) {
     item.classList.toggle("active", item.dataset.view === id);
@@ -201,7 +201,7 @@ function renderHome(data) {
   const hasDisk = data.total > 0;
   $("#homeFree").textContent = data.free_text;
   $("#homeMeta").textContent = hasDisk
-    ? `Занято ${data.used_text} из ${data.total_text} · свободно ${data.percent_free}%`
+    ? tf`Занято ${data.used_text} из ${data.total_text} · свободно ${data.percent_free}%`
     : "Нет данных о диске";
   $("#homeBar").style.width = `${data.percent_used}%`;
   $("#ringPercent").textContent = hasDisk ? `${data.percent_used}%` : "—";
@@ -218,7 +218,7 @@ function renderHome(data) {
 
   $("#trendChart").innerHTML = trendChart(data.trend);
   $("#trendMeta").textContent = data.trend.length
-    ? `${data.trend[0].label} → ${data.trend[data.trend.length - 1].label} · точек ${data.trend.length}`
+    ? tf`${data.trend[0].label} → ${data.trend[data.trend.length - 1].label} · точек ${data.trend.length}`
     : "нет данных";
   $("#trendForecast").textContent = data.forecast;
 
@@ -251,7 +251,7 @@ async function loadHome() {
 
 async function pickDrive(drive) {
   renderHome(await api().home_drive(drive));
-  status(`Диск ${drive}`);
+  status(tf`Диск ${drive}`);
 }
 
 /* ── история ──────────────────────────────────────── */
@@ -285,13 +285,13 @@ function renderHistory() {
   $("#histChart").innerHTML = histChart(hist ? hist.chart : []);
   $("#histEmpty").hidden = entries.length > 0;
   $("#histChip").textContent = entries.length
-    ? `${entries.length} из ${all.length}`
+    ? tf`${entries.length} из ${all.length}`
     : "журнал пуст";
   $("#histList").innerHTML = entries.map((entry) => `
     <div class="hist-row" title="${esc(entry.details.map((d) => d.name).join(", "))}">
       <span class="hist-date">${esc(entry.date)}</span>
       <span class="hist-type">${esc(entry.type_label)}</span>
-      <span class="hist-items">${entry.items} цел.</span>
+      <span class="hist-items">${tf`${entry.items} цел.`}</span>
       <span class="hist-size">${esc(entry.size_text)}</span>
     </div>`).join("");
 }
@@ -350,7 +350,7 @@ async function loadPrograms() {
     renderPrograms();
     status("Читаю установленные программы…", "busy");
     await api().programs_measure();
-    status(`Программ: ${programs.count}`, "");
+    status(tf`Программ: ${programs.count}`, "");
   } catch (error) {
     status("Не удалось прочитать список программ: " + error, "err");
   }
@@ -368,7 +368,7 @@ function renderStartup() {
   const items = startup.items.filter(startMatches);
   $("#startOn").textContent = startup.enabled;
   $("#startOff").textContent = startup.disabled;
-  $("#startChip").textContent = `${startup.count} записей`;
+  $("#startChip").textContent = tf`${startup.count} записей`;
   $("#startEmpty").hidden = items.length > 0;
   $("#startList").innerHTML = items.map((item) => `
     <div class="start-row${item.enabled ? "" : " off"}" data-start="${esc(item.id)}">
@@ -390,7 +390,7 @@ async function loadStartup() {
   try {
     startup = await api().startup_state();
     renderStartup();
-    status(`Автозагрузка: ${startup.enabled} включено, ${startup.disabled} отключено`, "");
+    status(tf`Автозагрузка: ${startup.enabled} включено, ${startup.disabled} отключено`, "");
   } catch (error) {
     status("Не удалось прочитать автозагрузку: " + error, "err");
   }
@@ -428,7 +428,7 @@ function renderDup() {
   }
 
   $("#dupSum").textContent = marked
-    ? `Отмечено ${marked} файлов · ${bytes(wasted)}`
+    ? tf`Отмечено ${marked} файлов · ${bytes(wasted)}`
     : "Ничего не отмечено";
   $("#dupDelete").disabled = !marked || !!dup.busy;
   $("#dupStop").disabled = !dup.busy;
@@ -516,7 +516,7 @@ function renderDisks() {
           <span class="vol-free"><b>${vol.free_text}</b> свободно</span>
         </div>
         <div class="vol-bar"><span style="width:${vol.percent_used}%"></span></div>
-        <div class="vol-meta">занято ${vol.used_text} из ${vol.total_text} · ${vol.percent_used}%</div>
+        <div class="vol-meta">${tf`занято ${vol.used_text} из ${vol.total_text} · ${vol.percent_used}%`}</div>
         ${vol.forecast ? `<div class="vol-forecast">${esc(vol.forecast)}</div>` : ""}
       </div>`;
   }).join("");
@@ -571,7 +571,7 @@ async function anaDriveChange(drive) {
   ana = await api().analyzer_set_drive(drive);
   renderAnalyzerShell();
   anaResetResult();
-  status(`Диск: ${drive}`);
+  status(tf`Диск: ${drive}`);
 }
 
 function anaResetResult() {
@@ -802,13 +802,15 @@ async function loadSettings() {
 
 async function exportReport(kind) {
   const result = await settingsGuard(() => api().export_report(kind), "Экспорт не удался");
-  if (result && result.ok) status(`Отчёт сохранён: ${result.path}`);
+  if (result && result.ok) status(tf`Отчёт сохранён: ${result.path}`);
 }
 
 function renderSettings() {
   const s = setst;
   if (!s) return;
   $("#setTheme").value = s.theme;
+  $("#setLang").value = s.ui_lang;
+  $("#setScale").value = String(s.ui_scale);
   $("#setRecycle").checked = s.to_recycle;
   $("#setSafe").checked = s.safe_mode;
   $("#setRestore").checked = s.restore_point;
@@ -826,12 +828,13 @@ function renderSettings() {
   $("#setUpdateSource").value = s.update_source;
   $("#setMode").value = s.schedule.mode;
   $("#setSchedNote").textContent = s.schedule.exists
-    ? `✅ Задание активно: ${s.schedule.mode_text}, раз в неделю.`
+    ? tf`✅ Задание активно: ${s.schedule.mode_text}, раз в неделю.`
     : "Задание не создано.";
   const hist = s.history;
   $("#setHistNote").textContent =
-    `Операций: ${hist.count} · освобождено всего: ${hist.total_text}\n` +
-    hist.recent.map((r) => `• ${r.when} — ${r.targets} целей, ${r.freed_text}`).join("\n");
+    tf`Операций: ${hist.count} · освобождено всего: ${hist.total_text}
+` +
+    hist.recent.map((r) => tf`• ${r.when} — ${r.targets} целей, ${r.freed_text}`).join("\n");
   $("#setRules").innerHTML = s.rules.length ? s.rules.map((r) => `
     <div class="rule-row${r.id === setSelRule ? " selected" : ""}" data-rule-id="${esc(r.id)}">
       <span>${esc(r.name)}</span>
@@ -851,6 +854,7 @@ async function applySettings(state, note) {
   if (state.theme) {
     document.documentElement.dataset.theme = state.theme === "light" ? "light" : "dark";
   }
+  applyUi(state);
   renderSettings();
   if (note) status(note);
 }
@@ -920,7 +924,7 @@ function confirmUninstall(id) {
         style: "primary",
         action: async () => {
           closeModal();
-          status(`Удаление: ${app.name}…`, "busy");
+          status(tf`Удаление: ${app.name}…`, "busy");
           await api().programs_uninstall(id);
         },
       },
@@ -948,7 +952,7 @@ function renderLayers() {
         <div class="layer-hint">${esc(layer.hint)}</div>
         <div class="layer-foot">
           <span class="layer-size">${size}</span>
-          <span class="layer-count">${layer.selected ? `${layer.selected} из ${layer.count}` : `${layer.count} цел.`}</span>
+          <span class="layer-count">${layer.selected ? tf`${layer.selected} из ${layer.count}` : tf`${layer.count} цел.`}</span>
         </div>
         <span class="layer-check${all ? " on" : some ? " partial" : ""}" data-check="${layer.id}">
           ${all ? glyph("E73E") : ""}
@@ -1012,7 +1016,7 @@ function renderTargets() {
         <div class="group-head" data-toggle="${layerId}">
           ${glyph("E70D", "chev")}
           <span class="g-title">${layerId} · ${esc(layer.title || layerId)}</span>
-          <span class="g-meta">${selected ? `выбрано ${selected} · ` : ""}${items.length} цел.</span>
+          <span class="g-meta">${selected ? tf`выбрано ${selected} · ` : ""}${tf`${items.length} цел.`}</span>
           <span class="g-size">${size ? bytes(size) : ""}</span>
         </div>
         <div class="group-body">
@@ -1056,7 +1060,7 @@ function renderClean() {
         <div class="group-head" data-toggle="${safety}">
           ${glyph("E70D", "chev")}
           <span class="g-title">${label}</span>
-          <span class="g-meta">${selected ? `выбрано ${selected} · ` : ""}${items.length} цел.</span>
+          <span class="g-meta">${selected ? tf`выбрано ${selected} · ` : ""}${tf`${items.length} цел.`}</span>
           <span class="g-size">${size ? bytes(size) : ""}</span>
         </div>
         <div class="group-body">${items.map(row).join("")}</div>
@@ -1099,16 +1103,16 @@ function renderSummary() {
 
   const chip = $("#chipFound");
   chip.textContent = s.scanned
-    ? `найдено ${s.found_text} · целей ${s.scanned} из ${s.total}`
-    : `не проанализировано · целей ${s.total}`;
+    ? tf`найдено ${s.found_text} · целей ${s.scanned} из ${s.total}`
+    : tf`не проанализировано · целей ${s.total}`;
   chip.classList.toggle("muted-chip", !s.scanned);
   const cleanChip = $("#cleanChip");
   cleanChip.textContent = chip.textContent;
   cleanChip.classList.toggle("muted-chip", !s.scanned);
 
   $("#pillAdmin").hidden = state.admin;
-  $("#statusMeta").textContent = `${s.total} целей · ${s.scanned} проанализировано`
-    + (s.errors ? ` · ошибок ${s.errors}` : "");
+  $("#statusMeta").textContent = tf`${s.total} целей · ${s.scanned} проанализировано`
+    + (s.errors ? tf` · ошибок ${s.errors}` : "");
 }
 
 function render() {
@@ -1290,7 +1294,7 @@ window.dc = {
     status("Анализ целей…", "busy");
   },
   progress(done, total) {
-    setProgress(total ? done / total : null, `Анализ целей… ${done} из ${total}`);
+    setProgress(total ? done / total : null, tf`Анализ целей… ${done} из ${total}`);
   },
   async scanDone(payload) {
     await applyPayload(payload);
@@ -1301,13 +1305,13 @@ window.dc = {
     const s = state.summary;
     status(
       s.scanned
-        ? `Анализ завершён: найдено ${s.found_text}`
+        ? tf`Анализ завершён: найдено ${s.found_text}`
         : "Анализ завершён",
       s.errors ? "err" : "",
     );
     if (s.selected === 0 && s.scanned) {
       await applyPayload(await api().safe_set());
-      status(`Анализ завершён: найдено ${s.found_text} · выбран безопасный набор`);
+      status(tf`Анализ завершён: найдено ${s.found_text} · выбран безопасный набор`);
     }
     loadHome();
   },
@@ -1316,7 +1320,7 @@ window.dc = {
     state.plan = plan;
     $("#btnPlan").disabled = false;
     setProgress(null, null);
-    status(`План готов: ${plan.bytes_text}, действий ${plan.actions}`);
+    status(tf`План готов: ${plan.bytes_text}, действий ${plan.actions}`);
     openModal({
       title: "План очистки",
       body: planBody(plan),
@@ -1332,7 +1336,7 @@ window.dc = {
     });
   },
   async cleanProgress(done, total, result) {
-    setProgress(total ? done / total : null, `Очистка… ${done} из ${total}`);
+    setProgress(total ? done / total : null, tf`Очистка… ${done} из ${total}`);
     const mark = result.status === "OK" ? "✓" : result.status === "ERR" ? "✕" : "•";
     status(`${mark} ${result.name} — ${result.freed_text}`);
   },
@@ -1341,7 +1345,7 @@ window.dc = {
     await applyPayload(payload.state);
     loadHome();
     const freed = payload.results.reduce((sum, r) => sum + r.freed, 0);
-    status(`Очистка завершена за ${payload.seconds} с · освобождено ${bytes(freed)}`);
+    status(tf`Очистка завершена за ${payload.seconds} с · освобождено ${bytes(freed)}`);
     const list = payload.results.map((r) => (
       `<li>${r.status === "OK" ? "✓" : r.status === "ERR" ? "✕" : "•"} ${esc(r.name)} — ${r.freed_text}${
         r.detail ? ` · <span class="muted">${esc(r.detail)}</span>` : ""
@@ -1380,7 +1384,7 @@ window.dc = {
     renderDup();
     status(
       state.count
-        ? `Найдено групп: ${state.count} · зря занято ${state.wasted_text}`
+        ? tf`Найдено групп: ${state.count} · зря занято ${state.wasted_text}`
         : "Дубликатов не найдено",
       "",
     );
@@ -1390,7 +1394,7 @@ window.dc = {
     disks = payload;
     if (current === "disks") {
       renderDisks();
-      status(`SMART прочитан: дисков ${payload.disks.length}`, "");
+      status(tf`SMART прочитан: дисков ${payload.disks.length}`, "");
     }
   },
   analyzerDone(payload) {
@@ -1400,7 +1404,7 @@ window.dc = {
   },
   analyzerEmptied(payload) {
     if (!payload || current !== "analyzer") return;
-    status(`Удалено пустых папок: ${payload.removed}`, "");
+    status(tf`Удалено пустых папок: ${payload.removed}`, "");
     const errors = (payload.errors || []).map((line) => `<li>${esc(line)}</li>`).join("");
     if (payload.report) renderAnalyzerDone({ ...payload.report, mode: "empty" });
     if (errors) {
@@ -1414,7 +1418,7 @@ window.dc = {
   analyzerTreemap(payload) {
     if (!payload || current !== "analyzer") return;
     renderTreemap(payload);
-    status(`Treemap: ${payload.nodes.length} элементов`, "");
+    status(tf`Treemap: ${payload.nodes.length} элементов`, "");
   },
   elevateFailed(message) {
     status(message || "Не удалось получить права администратора", "err");
@@ -1437,7 +1441,7 @@ window.dc = {
       dupChecked.clear();
       renderDup();
     }
-    status(`Удалено файлов: ${result.deleted} · освобождено ${result.freed_text}`, "");
+    status(tf`Удалено файлов: ${result.deleted} · освобождено ${result.freed_text}`, "");
     const errors = (result.errors || []).map((line) => `<li>${esc(line)}</li>`).join("");
     openModal({
       title: result.failed ? "Удалено с ошибками" : "Копии удалены",
@@ -1465,17 +1469,21 @@ window.dc = {
 
 /* ── форматирование ───────────────────────────────── */
 
-const UNITS = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+const UNITS = {
+  ru: ["Б", "КБ", "МБ", "ГБ", "ТБ"],
+  en: ["B", "KB", "MB", "GB", "TB"],
+};
 
 function bytes(value) {
+  const units = UNITS[UI_LANG] || UNITS.ru;
   let size = Number(value) || 0;
   let index = 0;
-  while (size >= 1024 && index < UNITS.length - 1) {
+  while (size >= 1024 && index < units.length - 1) {
     size /= 1024;
     index += 1;
   }
   const digits = size < 10 && index > 0 ? 1 : 0;
-  return `${size.toFixed(digits)} ${UNITS[index]}`;
+  return `${size.toFixed(digits)} ${units[index]}`;
 }
 
 /* ── события ──────────────────────────────────────── */
@@ -1710,6 +1718,23 @@ function bind() {
     if (state) await applySettings(state, "Тема применена");
   });
   for (const [id, key] of [
+    ["setLang", "ui_lang"],
+    ["setScale", "ui_scale"],
+  ]) {
+    $(`#${id}`).addEventListener("change", async (e) => {
+      const before = UI_LANG;
+      const state = await settingsGuard(() => api().settings_set(key, e.target.value), "Не сохранено");
+      if (!state) return;
+      if (key === "ui_lang" && e.target.value !== before) {
+        // Язык уже сохранён в конфиге; строки со значениями собраны
+        // один раз, поэтому страницу проще поднять заново.
+        window.location.reload();
+        return;
+      }
+      await applySettings(state, "Сохранено");
+    });
+  }
+  for (const [id, key] of [
     ["setRecycle", "to_recycle"],
     ["setSafe", "safe_mode"],
     ["setRestore", "restore_point"],
@@ -1838,7 +1863,7 @@ function bind() {
   });
   $("#setCfgExport").addEventListener("click", async () => {
     const result = await settingsGuard(() => api().config_export(), "Экспорт не удался");
-    if (result && result.ok) status(`Настройки экспортированы: ${result.path}`);
+    if (result && result.ok) status(tf`Настройки экспортированы: ${result.path}`);
   });
   $("#setCfgImport").addEventListener("click", async () => {
     const result = await settingsGuard(() => api().config_import(), "Импорт не удался");
@@ -1907,6 +1932,7 @@ function bind() {
 /* ── старт ────────────────────────────────────────── */
 
 async function boot() {
+  watchDynamicText();
   renderNav();
   bind();
   // До первого ответа питона страница уже показана: иначе клик по разделу,
@@ -1914,13 +1940,19 @@ async function boot() {
   showView("home");
   try {
     const data = await api().bootstrap();
+    // Язык и масштаб — до первой отрисовки: строки со значениями (tf)
+    // собираются один раз и задним числом не переводятся.
+    setst = await api().settings_state();
+    applyUi(setst);
     if (data.theme === "light") document.documentElement.dataset.theme = "light";
     await applyPayload(data.state);
     renderHome(data.home);
     $("#optRecycle").checked = !!data.state.to_recycle;
-    status("Готов к работе · " + (data.state.admin ? "права администратора" : "без прав администратора"));
+    renderSettings();
+    const right = data.state.admin ? "права администратора" : "без прав администратора";
+    status(tf`Готов к работе · ${t(right)}`);
   } catch (error) {
-    status("Не удалось загрузить движок: " + error, "err");
+    status(tf`Не удалось загрузить движок: ${error}`, "err");
   }
 }
 
