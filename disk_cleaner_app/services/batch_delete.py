@@ -196,11 +196,14 @@ def delete_many(
     paths: list[str],
     to_recycle: bool = True,
     use_ifile: bool = True,
+    shred: bool = False,
 ) -> dict:
     """Удалить список путей одной операцией оболочки.
 
     Сначала пробует ``IFileOperation`` (COM), при недоступности —
     ``SHFileOperationW``. Оба варианта удаляют пакет за один вызов.
+    ``shred=True`` вместо удаления перезаписывает содержимое нулями
+    (см. ``services/shred.py``) — корзина в этом режиме не используется.
 
     Возвращает словарь:
       ``deleted`` — пути, которых больше нет;
@@ -235,6 +238,11 @@ def delete_many(
 
     if not existing:
         return result
+
+    if shred:
+        from disk_cleaner_app.services.shred import shred_many
+
+        return shred_many(existing)
 
     if use_ifile:
         try:

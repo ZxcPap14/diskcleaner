@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 # Ключи, которые разрешено менять из интерфейса.
 EDITABLE_KEYS = {
     "theme", "to_recycle", "safe_mode", "restore_point", "deep_threshold_gb",
-    "tray_enabled", "start_minimized", "update_source",
+    "tray_enabled", "start_minimized", "update_source", "secure_erase",
 }
 
 SAFETY_LABELS = {"🟢": "Безопасно", "🟡": "Осторожно", "🔴": "Продвинутый"}
@@ -45,6 +45,7 @@ class SettingsService:
             "version": __version__,
             "theme": str(self._config.get("theme", "dark")),
             "to_recycle": bool(self._config.get("to_recycle", False)),
+            "secure_erase": bool(self._config.get("secure_erase", False)),
             "safe_mode": bool(self._config.get("safe_mode", True)),
             "restore_point": bool(self._config.get("restore_point", False)),
             "threshold": str(self._config.get("deep_threshold_gb", 10)),

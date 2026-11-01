@@ -31,6 +31,8 @@ DEFAULT_CONFIG: dict = {
     "safe_mode": True,
     # Кэши удаляются безвозвратно: корзина не освобождает место до её очистки.
     "to_recycle": False,
+    # Стирание вместо удаления: содержимое перезаписывается нулями.
+    "secure_erase": False,
     "theme": "dark",
     "last_scan": None,
     # owner/repo на GitHub или прямой адрес JSON-манифеста (см. services/updater.py).
@@ -59,7 +61,7 @@ def _atomic_write_json(path: Path, payload) -> None:
 
 def _valid_config_value(key: str, value) -> bool:
     """Проверить тип значения настройки перед импортом."""
-    if key in ("safe_mode", "to_recycle"):
+    if key in ("safe_mode", "to_recycle", "secure_erase"):
         return isinstance(value, bool)
     if key == "theme":
         return value in _VALID_THEMES

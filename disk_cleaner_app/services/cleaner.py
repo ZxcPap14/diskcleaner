@@ -264,7 +264,12 @@ class CleanEngine:
                 aborted = True
                 break
             chunk = paths[start:start + DELETE_CHUNK]
-            result = delete_many(chunk, to_recycle=recycle)
+            # Остатки (слой D) всегда в корзину: стереть их безвозвратно
+            # нельзя — это пользовательские файлы.
+            result = delete_many(
+                chunk, to_recycle=recycle,
+                shred=options.secure_erase and not recycle,
+            )
             deleted_all.extend(result.get("deleted", []))
             failed_all.extend(result.get("failed", []))
             if result.get("aborted"):

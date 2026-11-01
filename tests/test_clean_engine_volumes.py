@@ -26,7 +26,8 @@ class _DeleteSpy:
         self.recycle_flags: list[bool] = []
         self.fail = fail or set()
 
-    def __call__(self, paths, to_recycle: bool = False, use_ifile: bool = True):
+    def __call__(self, paths, to_recycle: bool = False, use_ifile: bool = True,
+                 shred: bool = False):
         self.calls.append(list(paths))
         self.recycle_flags.append(bool(to_recycle))
         deleted: list[str] = []

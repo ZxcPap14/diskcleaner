@@ -62,7 +62,7 @@ def test_result_carries_error_kinds(
     cleaner = _PathsCleaner(target)
     engine = CleanEngine()
 
-    def fake_delete_many(paths, to_recycle=True):
+    def fake_delete_many(paths, to_recycle=True, shred=False):
         # Имитация: один объект остался занят.
         return {"deleted": [], "failed": [str(target)], "aborted": False}
 

@@ -20,6 +20,8 @@ class CleanOptions:
 
     to_recycle: bool = False
     safe_mode: bool = True
+    # Стирание вместо удаления: содержимое перезаписывается нулями.
+    secure_erase: bool = False
 
 
 _DEFAULT_OPTIONS = CleanOptions()

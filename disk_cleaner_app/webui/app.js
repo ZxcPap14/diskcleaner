@@ -812,6 +812,7 @@ function renderSettings() {
   $("#setRecycle").checked = s.to_recycle;
   $("#setSafe").checked = s.safe_mode;
   $("#setRestore").checked = s.restore_point;
+  $("#setShred").checked = s.secure_erase;
   $("#setThreshold").value = s.threshold;
   const trayOk = s.tray_available !== false;
   $("#setTray").checked = s.tray_enabled;
@@ -1712,6 +1713,7 @@ function bind() {
     ["setRecycle", "to_recycle"],
     ["setSafe", "safe_mode"],
     ["setRestore", "restore_point"],
+    ["setShred", "secure_erase"],
     ["setTray", "tray_enabled"],
     ["setStartMin", "start_minimized"],
   ]) {

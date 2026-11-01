@@ -158,6 +158,7 @@ class DeepService:
             "layers": self.layers(),
             "summary": self.summary(),
             "to_recycle": bool(self.config.get("to_recycle", False)),
+            "secure_erase": bool(self.config.get("secure_erase", False)),
         }
 
     # ── анализ ───────────────────────────────────────
@@ -289,6 +290,7 @@ class DeepService:
         options = CleanOptions(
             to_recycle=bool(self.config.get("to_recycle", False)),
             safe_mode=bool(self.config.get("safe_mode", True)),
+            secure_erase=bool(self.config.get("secure_erase", False)),
         )
         self.busy = "clean"
         self._cancel.clear()
