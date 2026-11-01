@@ -33,6 +33,7 @@ class Api:
 
     def __init__(self) -> None:
         self._window: Any = None
+        self._tray: Any = None
         self._deep = DeepService()
         self._home = DashboardService(self._deep)
         self._hist = HistoryService(self._deep.history)
@@ -185,7 +186,45 @@ class Api:
         return self._settings.state()
 
     def settings_set(self, key: str, value: Any) -> dict[str, Any]:
-        return self._settings.set(key, value)
+        state = self._settings.set(key, value)
+        if key == "tray_enabled":
+            # Иконку включаем сразу: иначе тумблер врёт до перезапуска.
+            if value:
+                self.start_tray()
+            else:
+                self.stop_tray()
+            state["tray_enabled"] = self.tray_running
+        return state
+
+    # ── трей ─────────────────────────────────────────
+
+    def start_tray(self) -> bool:
+        """Поднять иконку в трее; True — она работает."""
+        if self._tray is None:
+            from disk_cleaner_app.web.tray import WebTray
+
+            self._tray = WebTray(on_show=self._tray_show, on_quit=self._tray_quit)
+        return self._tray.start()
+
+    def stop_tray(self) -> None:
+        if self._tray is not None:
+            self._tray.stop()
+
+    @property
+    def tray_running(self) -> bool:
+        return bool(self._tray is not None and self._tray.running)
+
+    def _tray_show(self) -> None:
+        try:
+            self._window.show()
+        except Exception:
+            log.warning("Не удалось показать окно из трея", exc_info=True)
+
+    def _tray_quit(self) -> None:
+        try:
+            self._window.hide()
+        finally:
+            os._exit(0)
 
     def whitelist_add(self, path: str) -> dict[str, Any]:
         return self._settings.whitelist_add(path)
@@ -424,11 +463,13 @@ class Api:
 
     def win_close(self) -> str:
         def worker() -> None:
-            try:
-                # Скрыть и выйти немедленно: destroy() дожидается разборки
-                # WebView2, из-за чего приложение «висело» пару секунд.
-                self._window.hide()
-            finally:
+            # С иконкой в трее крестик только прячет окно — иначе
+            # «свернуть в трей» теряло бы смысл.
+            keep = self.tray_running
+            # Скрыть и выйти немедленно: destroy() дожидается разборки
+            # WebView2, из-за чего приложение «висело» пару секунд.
+            self._window.hide()
+            if not keep:
                 os._exit(0)
 
         threading.Thread(target=worker, daemon=True).start()

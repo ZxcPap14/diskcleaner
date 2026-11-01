@@ -117,3 +117,33 @@ def test_icon_image_taken_from_meipass_when_frozen(
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
     assert tray._load_icon_image().size == (16, 16)
+
+
+# ── трей веб-версии ──────────────────────────────────────
+
+
+def test_web_tray_reports_unavailable_without_pystray(monkeypatch) -> None:
+    from disk_cleaner_app.web.tray import WebTray
+
+    monkeypatch.setitem(sys.modules, "pystray", None)
+    web_tray = WebTray(on_show=lambda: None, on_quit=lambda: None)
+
+    assert web_tray.start() is False
+    assert web_tray.running is False
+    web_tray.stop()
+
+
+def test_web_tray_skips_second_quick_clean() -> None:
+    """Пока идёт тихая очистка, повторный клик её не дублирует."""
+    import threading
+
+    from disk_cleaner_app.web.tray import WebTray
+
+    web_tray = WebTray(on_show=lambda: None, on_quit=lambda: None)
+    running = threading.Thread(target=threading.Event().wait, daemon=True)
+    running.start()
+    web_tray._clean = running
+
+    web_tray.quick_clean()
+
+    assert web_tray._clean is running

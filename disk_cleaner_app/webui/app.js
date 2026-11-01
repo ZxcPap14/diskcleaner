@@ -813,6 +813,14 @@ function renderSettings() {
   $("#setSafe").checked = s.safe_mode;
   $("#setRestore").checked = s.restore_point;
   $("#setThreshold").value = s.threshold;
+  const trayOk = s.tray_available !== false;
+  $("#setTray").checked = s.tray_enabled;
+  $("#setTray").disabled = !trayOk;
+  $("#setStartMin").checked = s.start_minimized;
+  $("#setStartMin").disabled = !trayOk;
+  $("#setTrayNote").textContent = trayOk
+    ? "Крестик прячет окно в трей; меню: открыть, тихая очистка, выход"
+    : "Недоступно: трей не установлен";
   $("#setAutostart").checked = s.autostart;
   $("#setUpdateSource").value = s.update_source;
   $("#setMode").value = s.schedule.mode;
@@ -1704,6 +1712,8 @@ function bind() {
     ["setRecycle", "to_recycle"],
     ["setSafe", "safe_mode"],
     ["setRestore", "restore_point"],
+    ["setTray", "tray_enabled"],
+    ["setStartMin", "start_minimized"],
   ]) {
     $(`#${id}`).addEventListener("change", async (e) => {
       const state = await settingsGuard(() => api().settings_set(key, e.target.checked), "Не сохранено");

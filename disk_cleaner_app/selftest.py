@@ -115,8 +115,8 @@ def _check_tray() -> str:
 def collect_checks() -> dict:
     from disk_cleaner_app import __version__
 
-    # Веб-сборка живёт без Tk/customtkinter/pystray: они из неё исключены,
-    # поэтому Tk-проверки заменяются на pywebview.
+    # Веб-сборка живёт без Tk/customtkinter: они из неё исключены,
+    # поэтому Tk-проверки заменяются на pywebview. Трей есть в обеих.
     web_mode = os.environ.get("DISKCLEANER_WEB") == "1"
     checks: dict = {}
     if web_mode:
@@ -128,8 +128,7 @@ def collect_checks() -> dict:
     checks["config_write"] = _check("config_write", _check_config_write)
     checks["temp_write"] = _check("temp_write", _check_temp_write)
     checks["powershell"] = _check("powershell", _check_powershell, critical=False)
-    if not web_mode:
-        checks["tray"] = _check("tray", _check_tray, critical=False)
+    checks["tray"] = _check("tray", _check_tray, critical=False)
     checks["admin"] = _check("admin", _check_admin, critical=False)
     ok = all(item["ok"] for item in checks.values() if item["critical"])
     return {

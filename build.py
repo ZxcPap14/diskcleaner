@@ -135,11 +135,16 @@ def build_command(
             "--hidden-import", "clr",
             "--hidden-import", "pythonnet",
         ]
-        # Веб-интерфейс живёт без Tk-стека, трея и Pillow — выкидываем их
-        # целиком: это примерно треть размера сборки.
-        for module in ("tkinter", "_tkinter", "customtkinter", "squarify",
-                       "pystray", "PIL"):
+        # Tk-стек веб-интерфейсу не нужен — выкидываем целиком.
+        # pystray/Pillow остаются: на них работает иконка в трее.
+        for module in ("tkinter", "_tkinter", "customtkinter", "squarify"):
             cmd += ["--exclude-module", module]
+        cmd += [
+            # pystray выбирает бэкенд динамически — без этого трей молча
+            # отсутствует в собранном exe.
+            "--hidden-import", "pystray",
+            "--hidden-import", "pystray._win32",
+        ]
     else:
         cmd += [
             "--collect-data", "customtkinter",
@@ -153,9 +158,9 @@ def build_command(
     if os.path.exists(ICON_PATH):
         cmd += ["--icon", os.path.abspath(ICON_PATH)]
     assets_dir = os.path.abspath("assets")
-    if os.path.isdir(assets_dir) and not web:
-        # Иконка трея лежит в assets; onefile кладёт её в _MEIPASS.
-        # Веб-сборке assets не нужны — иконка встроена через --icon.
+    if os.path.isdir(assets_dir):
+        # Иконка трея лежит в assets; onefile кладёт её в _MEIPASS,
+        # onedir — рядом с exe (см. services/tray_icon.py).
         cmd += ["--add-data", f"{assets_dir}{os.pathsep}assets"]
     if version_file:
         cmd += ["--version-file", version_file]

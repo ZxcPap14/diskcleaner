@@ -62,6 +62,14 @@ def create(debug: bool = False) -> tuple[webview.Window, Api]:
     def on_shown() -> None:
         win.prepare(window)
         win.set_dark_frame(window, dark)
+        config = ConfigManager()
+        # --tray приходит из автозапуска: там же подразумевается и иконка.
+        autostart = "--tray" in sys.argv
+        if (config.get("tray_enabled", False) or autostart) and api.start_tray():
+            # Старт «в трей» имеет смысл только с живой иконкой: без неё
+            # окно нечем вернуть, поэтому остаёмся видимыми.
+            if autostart or config.get("start_minimized", False):
+                window.hide()
 
     def on_closed() -> None:
         # destroy() закрывает окно, но процесс могут держать фоновые потоки

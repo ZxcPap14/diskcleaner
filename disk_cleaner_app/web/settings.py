@@ -11,6 +11,7 @@ from disk_cleaner_app.models.config import CONFIG_DIR, ConfigManager
 from disk_cleaner_app.models.history import HistoryManager
 from disk_cleaner_app.models.item import format_bytes
 from disk_cleaner_app.services.logging_setup import LOG_FILE
+from disk_cleaner_app.services.tray_icon import tray_available
 from disk_cleaner_app.services.updater import check_for_updates
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class SettingsService:
             "restore_point": bool(self._config.get("restore_point", False)),
             "threshold": str(self._config.get("deep_threshold_gb", 10)),
             "tray_enabled": bool(self._config.get("tray_enabled", False)),
+            "tray_available": tray_available(),
             "start_minimized": bool(self._config.get("start_minimized", False)),
             "autostart": self._autostart_enabled(),
             "update_source": str(self._config.get("update_source", "")),
